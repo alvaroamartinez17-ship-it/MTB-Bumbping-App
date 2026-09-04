@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MTB Bump — Self test</title>
+<!-- Everything here is inline on purpose. If the stylesheet or a script is the
+     thing that is broken, a diagnostic page that depends on them is useless. -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline';
+               style-src 'self' 'unsafe-inline'; img-src 'self' data:;
+               connect-src 'self'">
+<style>
+  body { margin:0; padding:16px; background:#12151a; color:#e6e9ef;
+         font:16px/1.5 -apple-system, system-ui, sans-serif; }
+  h1 { font-size:1.1rem; margin:0 0 4px; }
+  p.sub { color:#8b93a1; font-size:.85rem; margin:0 0 16px; }
+  h2 { font-size:.85rem; color:#8b93a1; margin:20px 0 6px; font-weight:500; }
+  .row { display:flex; gap:8px; padding:7px 0; border-bottom:1px solid #2a3240;
+         font-size:.85rem; align-items:baseline; }
+  .row b { flex:1; font-weight:400; font-family:ui-monospace,Menlo,monospace; }
+  .ok { color:#4caf7d; } .bad { color:#e05c5c; } .warn { color:#e08a3c; }
+  button { font:inherit; width:100%; padding:.7rem; margin-top:16px;
+           border-radius:10px; border:none; background:#4c9aff; color:#fff;
+           font-weight:600; }
+  #verdict { margin-top:16px; padding:12px; border-radius:10px; font-size:.85rem;
+             line-height:1.5; }
+  a { color:#4c9aff; }
+</style>
+</head>
+<body>
+
+<h1>MTB Bump — self test</h1>
+<p class="sub">Checks what actually loaded and what this browser allows.</p>
+
+<h2>Page</h2>
+<div id="page"></div>
+
+<h2>Files</h2>
+<div id="files"></div>
+
+<h2>Browser</h2>
+<div id="browser"></div>
+
+<div id="verdict"></div>
+
+<button id="ask">Request motion permission</button>
+<p class="sub" id="askresult"></p>
+
+<p class="sub"><a href="index.html">← back to the app</a></p>
+
+<script>
+function row(where, label, value, state) {
+  var d = document.createElement('div');
+  d.className = 'row';
+  d.innerHTML = '<b>' + label + '</b><span class="' + (state || '') + '">' + value + '</span>';
+  document.getElementById(where).appendChild(d);
+}
+
+/* ---- page ---- */
+row('page', 'address', location.protocol.replace(':', ''),
+    location.protocol === 'https:' ? 'ok' : 'bad');
+row('page', 'secure context', window.isSecureContext ? 'yes' : 'no',
+    window.isSecureContext ? 'ok' : 'bad');
+row('page', 'folder', location.pathname.replace(/[^/]*$/, ''));
+
+/* ---- files ---- */
+var FILES = [
+  'css/app.css', 'manifest.json', 'icon.svg', 'sw.js',
+  'js/i18n.js', 'js/setup.js', 'js/store.js', 'js/crypto.js',
+  'js/analysis.js', 'js/backup.js', 'js/descent.js', 'js/recorder.js',
+  'js/appmanage.js', 'js/trails.js', 'js/trackmap.js', 'js/tiles.js'
+];
+var failed = 0, checked = 0;
+
+FILES.forEach(function (f) {
+  fetch(f, { cache: 'no-store' }).then(function (r) {
+    checked++;
+    if (r.ok) { row('files', f, 'ok', 'ok'); }
+    else { failed++; row('files', f, r.status, 'bad'); }
+    if (checked === FILES.length) verdict();
+  }).catch(function () {
+    checked++; failed++;
+    row('files', f, 'not found', 'bad');
+    if (checked === FILES.length) verdict();
+  });
+});
+
+/* ---- browser ---- */
+var hasMotion = typeof DeviceMotionEvent !== 'undefined';
+var needsAsk = hasMotion && typeof DeviceMotionEvent.requestPermission === 'function';
+row('browser', 'DeviceMotionEvent', hasMotion ? 'present' : 'missing', hasMotion ? 'ok' : 'bad');
+row('browser', 'asks permission', needsAsk ? 'yes (iOS 13+)' : 'no', 'ok');
+row('browser', 'geolocation', 'geolocation' in navigator ? 'present' : 'missing',
+    'geolocation' in navigator ? 'ok' : 'bad');
+row('browser', 'indexedDB', 'indexedDB' in window ? 'present' : 'missing',
+    'indexedDB' in window ? 'ok' : 'bad');
+row('browser', 'serviceWorker', 'serviceWorker' in navigator ? 'present' : 'missing',
+    'serviceWorker' in navigator ? 'ok' : 'warn');
+row('browser', 'crypto.subtle', (window.crypto && crypto.subtle) ? 'present' : 'missing',
+    (window.crypto && crypto.subtle) ? 'ok' : 'warn');
+row('browser', 'wake lock', 'wakeLock' in navigator ? 'present' : 'missing (expected on iOS 15)', 'warn');
+row('browser', 'iOS version', (navigator.userAgent.match(/OS (\d+[_\d]*)/) || [,'?'])[1].replace(/_/g, '.'));
+
+function verdict() {
+  var v = document.getElementById('verdict');
+  if (failed > 0) {
+    v.style.background = '#3a1a1a';
+    v.style.color = '#f0a8a8';
+    v.textContent = failed + ' file(s) did not load. That is why the app does ' +
+      'nothing when you tap a button — the code is not there. The folder ' +
+      'structure on GitHub does not match what the page expects.';
+  } else if (!window.isSecureContext) {
+    v.style.background = '#3a1a1a';
+    v.style.color = '#f0a8a8';
+    v.textContent = 'Not a secure context. Safari blocks the accelerometer ' +
+      'unless the address starts with https.';
+  } else {
+    v.style.background = '#1d3a2c';
+    v.style.color = '#a8dcc0';
+    v.textContent = 'Everything loaded. Tap the button below — you should see ' +
+      'an iOS dialog asking to allow Motion & Orientation access.';
+  }
+}
+
+/* ---- permission ---- */
+document.getElementById('ask').addEventListener('click', function () {
+  var out = document.getElementById('askresult');
+  if (!needsAsk) {
+    out.textContent = 'This browser does not gate motion behind a permission.';
+    return;
+  }
+  out.textContent = 'asking…';
+  DeviceMotionEvent.requestPermission().then(function (state) {
+    out.textContent = 'Result: ' + state +
+      (state === 'granted' ? ' — sensors are available.'
+       : ' — Settings → Safari → Motion & Orientation Access, then reload.');
+  }).catch(function (e) {
+    out.textContent = 'Rejected: ' + e.message +
+      ' (this happens if the request is not tied to a real tap, or the page is not https)';
+  });
+});
+
+/* ---- catch anything that throws ---- */
+window.addEventListener('error', function (e) {
+  var out = document.getElementById('askresult');
+  out.textContent = 'Script error: ' + e.message;
+});
+</script>
+</body>
+</html>

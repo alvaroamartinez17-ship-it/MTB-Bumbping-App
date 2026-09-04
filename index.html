@@ -30,6 +30,7 @@
 </header>
 
 <main>
+  <div id="errbar" class="errbar" hidden></div>
 
   <div id="updatebar" class="updatebar" hidden>
     <span data-i18n="update.available"></span>
@@ -40,6 +41,7 @@
     <p data-i18n="gate.intro"></p>
     <button id="grant" class="primary" data-i18n="gate.button">Enable sensors</button>
     <p id="gate-msg" class="muted"></p>
+    <p class="muted small"><a href="check.html">Nothing happening? Run the self test →</a></p>
   </section>
 
   <section id="app" hidden>
@@ -226,6 +228,40 @@
   </section>
 </main>
 
+<script>
+/*
+ * On-screen error reporting.
+ *
+ * There is no console on an iPhone. Without this, any script that fails to
+ * load or throws on startup turns into "I tap the button and nothing happens",
+ * which is the least useful bug report there is. This makes the failure
+ * visible on the device.
+ *
+ * Registered before anything else so it can catch failures in the setup code
+ * itself.
+ */
+(function () {
+  function show(msg) {
+    var bar = document.getElementById('errbar');
+    if (!bar) return;
+    bar.hidden = false;
+    bar.textContent = msg;
+  }
+  window.addEventListener('error', function (e) {
+    if (e.target && e.target.tagName === 'SCRIPT') {
+      show('Could not load ' + (e.target.src || '').split('/').slice(-1)[0] +
+           '. The app cannot run. Open check.html to see which files are missing.');
+    } else if (e.target && e.target.tagName === 'LINK') {
+      show('Stylesheet did not load. Open check.html.');
+    } else {
+      show('Error: ' + e.message + (e.lineno ? ' (line ' + e.lineno + ')' : ''));
+    }
+  }, true);
+  window.addEventListener('unhandledrejection', function (e) {
+    show('Error: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
+  });
+})();
+</script>
 <script src="js/i18n.js"></script>
 <script src="js/setup.js"></script>
 <script src="js/store.js"></script>
@@ -256,6 +292,9 @@ Store.requestPersistence().then(function (ok) {
 /* ---- permission gate ---- */
 
 $('grant').addEventListener('click', function () {
+  // Immediate feedback. If the tap registers but the request fails silently,
+  // this at least proves the handler is alive.
+  $('gate-msg').textContent = '…';
   if (!isSecureContext) {
     $('gate-msg').textContent = 'This page must be served over HTTPS.';
     return;
@@ -265,6 +304,7 @@ $('grant').addEventListener('click', function () {
     return;
   }
   SessionRecorder.requestPermission().then(function (state) {
+    $('gate-msg').textContent = 'Motion: ' + state;
     if (state !== 'granted') {
       $('gate-msg').textContent =
         'Denied. Settings → Safari → Motion & Orientation Access, then reload.';
@@ -277,7 +317,10 @@ $('grant').addEventListener('click', function () {
     $('app').hidden = false;
     refreshRuns();
 
-  }).catch(function (e) { $('gate-msg').textContent = String(e); });
+  }).catch(function (e) {
+    $('gate-msg').textContent = 'Request rejected: ' + (e.message || e) +
+      ' — this happens if the page is not https, or the tap was not registered.';
+  });
 });
 
 /* ---- live readout ---- */
