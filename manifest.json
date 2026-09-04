@@ -1,0 +1,21 @@
+{
+  "name": "MTB Bump",
+  "lang": "en",
+  "dir": "ltr",
+  "short_name": "MTB Bump",
+  "description": "Logs trail roughness on descents and compares runs of the same trail.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#12151a",
+  "theme_color": "#12151a",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

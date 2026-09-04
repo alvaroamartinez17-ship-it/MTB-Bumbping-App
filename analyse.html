@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MTB Bump — Analyse</title>
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline';
+               style-src 'self' 'unsafe-inline';
+               img-src 'self' data: https://server.arcgisonline.com https://tile.opentopomap.org;
+               connect-src 'none'; form-action 'none'; base-uri 'none';
+               object-src 'none'; frame-ancestors 'none'">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<header>
+  <h1>Analyse</h1>
+  <nav><a href="index.html">← Record</a></nav>
+</header>
+
+<main>
+
+  <section class="card">
+    <label><span data-i18n="an.trail">Trail</span><select id="trail"></select></label>
+    <label><span data-i18n="an.satellite">Satellite imagery</span>
+      <select id="tiles">
+        <option value="off">Off</option>
+        <option value="satellite">Satellite</option>
+        <option value="topo">Topographic</option>
+      </select></label>
+    <p id="tilenote" class="muted small"></p>
+    <p id="msg" class="muted small"></p>
+  </section>
+
+  <section id="overview">
+    <canvas id="map" height="320"></canvas>
+    <p class="muted small">
+      Colour is median roughness across the selected runs: blue smooth, red
+      rough. Orange marks bins where the sensor saturated. Tap another track to
+      switch trails.
+    </p>
+  </section>
+
+  <section id="setupdiff" class="card" hidden>
+    <h3 data-i18n="setup.title">Bike setup</h3>
+    <p id="setup-verdict"></p>
+    <table id="setup-table" class="setupdiff"></table>
+  </section>
+
+  <section id="bysetup" hidden>
+    <h3 data-i18n="an.bySetup">Roughness by setup</h3>
+    <p class="muted small" data-i18n="an.bySetup.intro"></p>
+    <table id="setup-results" class="setupdiff"></table>
+    <p id="bysetup-note" class="muted small"></p>
+  </section>
+
+  <section id="floor" class="card" hidden>
+    <h3 data-i18n="an.spread">Run-to-run spread</h3>
+    <p id="floor-headline"></p>
+    <p class="muted small" id="floor-detail"></p>
+  </section>
+
+  <section id="runs-section">
+    <h2 data-i18n="an.runs">Runs on this trail</h2>
+    <ul id="runlist" class="runs compact"></ul>
+  </section>
+
+  <section id="frame-section" hidden>
+    <h3>Roughness by distance</h3>
+    <p class="muted small">
+      X is metres from the top. Y is energy per metre. The band is the
+      interquartile range across the selected runs, the white line is the
+      median, and each thin line is one run. Drag across it to place a marker
+      on the map.
+    </p>
+    <canvas id="frame" height="280"></canvas>
+    <div id="readout" class="readout muted small">—</div>
+  </section>
+
+  <section id="features" hidden>
+    <h3 data-i18n="an.rough">Consistently rough</h3>
+    <p class="muted small">
+      High roughness, low scatter — the trail does this to you every time.
+    </p>
+    <table id="consistent"></table>
+
+    <h3 data-i18n="an.variable">Most variable</h3>
+    <p class="muted small">
+      Runs disagree most here. Usually line choice or speed rather than terrain.
+    </p>
+    <table id="variable"></table>
+  </section>
+
+</main>
+
+<script src="js/i18n.js"></script>
+<script src="js/setup.js"></script>
+<script src="js/tiles.js"></script>
+<script src="js/store.js"></script>
+<script src="js/analysis.js"></script>
+<script src="js/trails.js"></script>
+<script src="js/trackmap.js"></script>
+<script>
+const A = window.Analysis, T = window.Trails;
+const $ = (id) => document.getElementById(id);
+
+let runs = [], trails = [], map = null, current = null, selected = new Set();
+
+const PALETTE = ['#4c9aff', '#4caf7d', '#e0a93c', '#c778dd', '#5ec8c8',
+                 '#e07a5c', '#9aa8ff', '#8fbf5c'];
+
+I18n.init();
+I18n.apply();
+initTiles();
+
+function initTiles() {
+  const sel = $('tiles');
+  sel.value = window.Tiles.enabled;
+  updateTileNote();
+  sel.addEventListener('change', function () {
+    if (sel.value !== 'off' && !confirm(
+      'Turning on map imagery means this page will request tiles from a third ' +
+      'party.\n\nEvery request tells that server which few hundred metres of ' +
+      'ground you are looking at, with your IP address attached. That is how ' +
+      'tiled maps work — there is no version without it.\n\nThe page still ' +
+      'cannot upload anything: its policy allows images in and nothing out.\n\n' +
+      'Continue?')) {
+      sel.value = 'off';
+      return;
+    }
+    window.Tiles.set(sel.value);
+    window.Tiles.clear();
+    updateTileNote();
+    if (map) map.draw();
+  });
+}
+
+function updateTileNote() {
+  $('tilenote').textContent = I18n.t(
+    window.Tiles.enabled === 'off' ? 'an.satellite.off' : 'an.satellite.on');
+}
+
+init();
+
+async function init() {
+  // Everything comes from IndexedDB on this device. This page makes no network
+  // requests — see the CSP in the head, which forbids them outright.
+  runs = await window.Store.all();
+
+  if (!runs.length) {
+    $('msg').textContent =
+      'No runs on this device yet. Record a session, or restore a backup from ' +
+      'the record page.';
+    return;
+  }
+
+  trails = T.groupTrails(runs);
+  $('msg').textContent =
+    runs.length + ' runs on this device, grouped into ' + trails.length +
+    ' trail(s) by GPS overlap. Nothing here leaves the phone.';
+
+  $('trail').innerHTML = '';
+  trails.forEach((t, i) => {
+    $('trail').append(new Option(
+      t.name + ' · ' + t.runIds.length + ' run' + (t.runIds.length > 1 ? 's' : '') +
+      ' · ' + t.length + ' m', String(i)
+    ));
+  });
+  $('trail').addEventListener('change', () => selectTrail(+$('trail').value));
+
+  initMap();
+  if (trails.length) selectTrail(0);
+}
+
+const runById = (id) => runs.find((r) => r.id === id);
+
+/* ---- map ---- */
+
+function initMap() {
+  map = new window.TrackMap($('map'));
+  map.onSelect = function (id) {
+    const i = trails.findIndex((t) => t.id === id);
+    if (i >= 0) { $('trail').value = String(i); selectTrail(i); }
+  };
+}
+
+function roughColour(v, max) {
+  const f = Math.max(0, Math.min(1, max > 0 ? v / max : 0));
+  return 'hsl(' + (210 - f * 210) + ', 75%, ' + (55 - f * 12) + '%)';
+}
+
+function drawMap(activeIndex) {
+  if (!map) return;
+  const tracks = [];
+
+  trails.forEach((t, i) => {
+    if (i === activeIndex) return;
+    const ref = runById(t.referenceId);
+    if (ref) {
+      tracks.push({ id: t.id, points: ref.gps, color: '#6b7688', weight: 2.5 });
+    }
+  });
+
+  const agg = current && current.agg;
+  if (agg && agg.bins.length) {
+    const max = Math.max(...agg.bins.map((b) => b.median), 1e-6);
+    tracks.push({
+      id: current.trail.id,
+      points: agg.bins,
+      weight: 7,
+      segments: agg.bins.map((b) => ({
+        lat: b.lat, lon: b.lon,
+        color: b.clipped ? '#e08a3c' : roughColour(b.median, max),
+      })),
+    });
+  }
+  map.setTracks(tracks);
+}
+
+/* ---- selection ---- */
+
+function selectTrail(i) {
+  const trail = trails[i];
+  if (!trail) return;
+  selected = new Set(trail.runIds);
+  current = { trailIndex: i, trail };
+  recompute();
+}
+
+function recompute() {
+  const trail = current.trail;
+  const reference = runById(trail.referenceId);
+  const chosen = trail.runIds.filter((id) => selected.has(id)).map(runById).filter(Boolean);
+
+  if (!reference || !chosen.length) {
+    $('frame-section').hidden = true;
+    $('floor').hidden = true;
+    $('features').hidden = true;
+    renderRunList(trail, null);
+    return;
+  }
+
+  const agg = T.aggregateProfile(chosen, reference);
+  current.agg = agg;
+  current.floor = T.noiseFloor(agg);
+
+  renderRunList(trail, current.floor);
+  renderSetupDiff(chosen);
+  renderFloor(current.floor, chosen.length);
+  renderBySetup(agg, current.floor);
+  renderFeatures(agg);
+  drawMap(current.trailIndex);
+  drawFrame();
+}
+
+function renderRunList(trail, floor) {
+  const ul = $('runlist');
+  ul.innerHTML = '';
+  const deltas = new Map((floor ? floor.perRun : []).map((p) => [p.id, p.deltaPercent]));
+
+  trail.runIds.forEach((id, i) => {
+    const run = runById(id);
+    if (!run) return;
+    const on = selected.has(id);
+    const li = document.createElement('li');
+    li.className = on ? '' : 'off';
+
+    const d = deltas.get(id);
+    const deltaHtml = d === undefined ? ''
+      : '<span class="' + (Math.abs(d) < 5 ? 'muted' : d > 0 ? 'up' : 'down') + '">' +
+        I18n.pct(d) + '</span>';
+
+    li.innerHTML =
+      '<label class="runrow">' +
+      '<input type="checkbox" ' + (on ? 'checked' : '') + ' data-id="' + id + '">' +
+      '<span class="swatch" style="background:' + PALETTE[i % PALETTE.length] + '"></span>' +
+      '<span class="runmeta"><b>' + I18n.dateTime(run.startedAt) + '</b>' +
+      '<i>' + (run.setup ? escapeHtml(window.BikeSetup.summary(run.setup)) + ' · ' : '') +
+      (run.descent ? I18n.int(run.descent.length) + ' m · ' +
+               I18n.num(run.descent.drop, 0) + ' m' : '') +
+      (run.notes ? ' · ' + escapeHtml(run.notes) : '') + '</i></span>' +
+      deltaHtml + '</label>';
+
+    li.querySelector('input').addEventListener('change', (ev) => {
+      if (ev.target.checked) selected.add(id); else selected.delete(id);
+      recompute();
+    });
+    ul.append(li);
+  });
+}
+
+
+function renderSetupDiff(chosen) {
+  const box = $('setupdiff');
+  const setups = chosen.map((r) => r.setup);
+  const withSetup = setups.filter(Boolean);
+
+  if (withSetup.length === 0) { box.hidden = true; return; }
+  box.hidden = false;
+
+  const B = window.BikeSetup;
+  const d = B.diff(withSetup);
+  const missing = withSetup.length < setups.length;
+
+  let verdict = '';
+  if (d.blocking.length) {
+    verdict = '<span class="warn-inline">' + I18n.t('setup.diff.blocking') + '</span>';
+  } else if (d.identical) {
+    verdict = '<span class="ok-inline">' + I18n.t('setup.diff.same') + '</span>';
+  } else {
+    verdict = I18n.t('setup.diff.changed');
+  }
+  if (missing) verdict += ' <span class="muted">' + I18n.t('setup.diff.missing') + '</span>';
+  $('setup-verdict').innerHTML = verdict;
+
+  const keys = d.blocking.concat(d.changed);
+  if (!keys.length) { $('setup-table').innerHTML = ''; return; }
+
+  const header = '<tr><th></th>' + chosen.map((r, i) =>
+    '<th>' + I18n.dayMonth(r.startedAt) + '</th>').join('') + '</tr>';
+
+  const rows = keys.map((k) =>
+    '<tr><th>' + I18n.t('setup.' + k) + '</th>' +
+    chosen.map((r) => '<td>' + escapeHtml(B.display(r.setup, k)) + '</td>').join('') +
+    '</tr>').join('');
+
+  $('setup-table').innerHTML = header + rows;
+}
+
+function renderBySetup(agg, floor) {
+  const groups = window.Trails.groupBySetup(agg, floor);
+  const box = $('bysetup');
+  if (groups.length < 2) { box.hidden = true; return; }
+  box.hidden = false;
+
+  const B = window.BikeSetup;
+
+  // Label every group by the settings that actually vary between groups, so
+  // each row reads "LSC 6" rather than one row reading "baseline" and the
+  // others being described relative to whichever happened to come out best.
+  const varying = B.diff(groups.map((g) => g.setup));
+  const keys = varying.blocking.concat(varying.changed);
+
+  $('setup-results').innerHTML =
+    '<tr><th>Setup</th><th>Energy/m</th><th>Runs</th><th>vs best</th></tr>' +
+    groups.map((g, i) => {
+      const label = B.describeFields(g.setup, keys);
+      const cls = g.meaningful === false ? 'muted' : g.deltaPercent > 0 ? 'up' : 'down';
+      return '<tr><td>' + escapeHtml(label) + '</td>' +
+
+        '<td>' + I18n.num(g.median, 2) + '</td>' +
+        '<td class="muted">' + g.n + (g.thin ? ' ⚠' : '') + '</td>' +
+        '<td class="' + cls + '">' + (i === 0 ? '—' : I18n.pct(g.deltaPercent)) + '</td></tr>';
+    }).join('');
+
+  const notes = [];
+  if (groups.some((g) => g.thin)) notes.push(I18n.t('an.bySetup.thin'));
+  if (groups.some((g) => g.meaningful === false)) notes.push(I18n.t('an.bySetup.belowFloor'));
+  $('bysetup-note').textContent = notes.join(' ');
+}
+
+function renderFloor(floor, n) {
+  if (!floor) {
+    $('floor').hidden = true;
+    $('msg').textContent = n < 2
+      ? 'Select at least two runs to measure spread.'
+      : 'Not enough overlapping sections to measure spread yet.';
+    return;
+  }
+  $('floor').hidden = false;
+  const s = floor.spreadPercent;
+  $('floor-headline').innerHTML =
+    '<b class="big">' + I18n.num(s, 0) + ' %</b> · ' + floor.runs + ' · ' +
+    'A difference smaller than this is you riding the trail twice, not a change ' +
+    'in the trail or the bike.';
+  $('floor-detail').textContent =
+    'Measured over ' + floor.bins + ' sections every selected run covered. ' +
+    'Typical section-level scatter is ' + floor.medianBinCV.toFixed(0) + '%. ' +
+    (floor.runs < 3
+      ? 'Two runs give a weak estimate — three or more is much steadier.'
+      : '');
+}
+
+function renderFeatures(agg) {
+  const consistent = T.consistentFeatures(agg);
+  const variable = T.variableSections(agg);
+  $('features').hidden = !(consistent.length || variable.length);
+
+  $('consistent').innerHTML = consistent.length
+    ? '<tr><th>Section</th><th>Median</th><th>Scatter</th><th>Runs</th></tr>' +
+      consistent.map((b) =>
+        '<tr><td>' + b.startMetre.toFixed(0) + '–' + (b.startMetre + 10).toFixed(0) +
+        ' m</td><td class="up">' + b.median.toFixed(2) + '</td><td class="muted">' +
+        I18n.num(b.cv * 100, 0) + ' %</td><td class="muted">' + b.n + '</td></tr>').join('')
+    : '<tr><td class="muted">Need three or more runs to separate terrain from noise.</td></tr>';
+
+  $('variable').innerHTML = variable.length
+    ? '<tr><th>Section</th><th>Scatter</th><th>Median</th><th>Runs</th></tr>' +
+      variable.map((b) =>
+        '<tr><td>' + b.startMetre.toFixed(0) + '–' + (b.startMetre + 10).toFixed(0) +
+        ' m</td><td class="up">' + I18n.num(b.cv * 100, 0) + ' %</td><td class="muted">' +
+        b.median.toFixed(2) + '</td><td class="muted">' + b.n + '</td></tr>').join('')
+    : '';
+}
+
+/* ---- the distance / roughness frame ---- */
+
+const PAD = { l: 46, r: 10, t: 12, b: 28 };
+
+function sizeCanvas(cv) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth || cv.parentElement.clientWidth;
+  const h = +cv.getAttribute('height');
+  cv.width = w * dpr; cv.height = h * dpr;
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, w, h };
+}
+
+function drawFrame(hoverX) {
+  $('frame-section').hidden = false;
+  const cv = $('frame');
+  const { ctx, w, h } = sizeCanvas(cv);
+  ctx.clearRect(0, 0, w, h);
+
+  const agg = current && current.agg;
+  if (!agg || !agg.bins.length) {
+    ctx.fillStyle = '#8b93a1';
+    ctx.font = '13px system-ui, sans-serif';
+    ctx.fillText('Not enough overlapping GPS to build a profile.', PAD.l, h / 2);
+    return;
+  }
+
+  const total = agg.matcher.totalLength;
+  const plotW = w - PAD.l - PAD.r, plotH = h - PAD.t - PAD.b;
+
+  let maxY = 0;
+  for (const b of agg.bins) maxY = Math.max(maxY, b.p75, b.median);
+  for (const { bins } of agg.perRun) {
+    for (const b of bins) maxY = Math.max(maxY, b.metrics.energyPerMetre);
+  }
+  maxY = maxY * 1.08 || 1;
+
+  const X = (d) => PAD.l + (d / Math.max(total, 1)) * plotW;
+  const Y = (v) => PAD.t + plotH - (v / maxY) * plotH;
+
+  ctx.font = '10px system-ui, sans-serif';
+  ctx.lineWidth = 1;
+  for (let k = 0; k <= 4; k++) {
+    const v = (maxY / 4) * k, y = Y(v);
+    ctx.strokeStyle = '#2a3240';
+    ctx.beginPath(); ctx.moveTo(PAD.l, y); ctx.lineTo(w - PAD.r, y); ctx.stroke();
+    ctx.fillStyle = '#8b93a1';
+    ctx.fillText(v.toFixed(1), 4, y + 3);
+  }
+  const tick = niceTick(total);
+  for (let d = 0; d <= total; d += tick) {
+    const x = X(d);
+    ctx.strokeStyle = '#1f2530';
+    ctx.beginPath(); ctx.moveTo(x, PAD.t); ctx.lineTo(x, h - PAD.b); ctx.stroke();
+    ctx.fillStyle = '#8b93a1';
+    ctx.fillText(d.toFixed(0), x - 8, h - 8);
+  }
+  ctx.fillText('m', w - PAD.r - 8, h - 8);
+
+  // interquartile band
+  ctx.beginPath();
+  agg.bins.forEach((b, i) => {
+    const x = X(b.startMetre + 5);
+    if (i === 0) ctx.moveTo(x, Y(b.p75)); else ctx.lineTo(x, Y(b.p75));
+  });
+  for (let i = agg.bins.length - 1; i >= 0; i--) {
+    ctx.lineTo(X(agg.bins[i].startMetre + 5), Y(agg.bins[i].p25));
+  }
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(76,154,255,0.22)';
+  ctx.fill();
+
+  // individual runs
+  agg.perRun.forEach(({ run, bins }) => {
+    const i = current.trail.runIds.indexOf(run.id);
+    ctx.beginPath();
+    bins.forEach((b, k) => {
+      const x = X(b.startMetre + 5), y = Y(b.metrics.energyPerMetre);
+      if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = PALETTE[(i < 0 ? 0 : i) % PALETTE.length];
+    ctx.globalAlpha = 0.55;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  });
+
+  // median
+  ctx.beginPath();
+  agg.bins.forEach((b, i) => {
+    const x = X(b.startMetre + 5), y = Y(b.median);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = '#e6e9ef';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  if (hoverX !== undefined) {
+    ctx.strokeStyle = '#e08a3c';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(hoverX, PAD.t); ctx.lineTo(hoverX, h - PAD.b); ctx.stroke();
+  }
+}
+
+function niceTick(total) {
+  const raw = total / 6;
+  const pow = Math.pow(10, Math.floor(Math.log10(Math.max(raw, 1))));
+  return Math.max(pow * Math.round(raw / pow), 10);
+}
+
+function frameHover(ev) {
+  const agg = current && current.agg;
+  if (!agg || !agg.bins.length) return;
+  const rect = $('frame').getBoundingClientRect();
+  const clientX = ev.touches ? ev.touches[0].clientX : ev.clientX;
+  const x = clientX - rect.left;
+  const d = ((x - PAD.l) / (rect.width - PAD.l - PAD.r)) * agg.matcher.totalLength;
+  if (d < 0 || d > agg.matcher.totalLength) return;
+
+  drawFrame(x);
+  const bin = agg.bins.find((b) => d >= b.startMetre && d < b.startMetre + 10);
+  $('readout').textContent = bin
+    ? bin.startMetre.toFixed(0) + ' m · median ' + bin.median.toFixed(2) +
+      ' · range ' + bin.p25.toFixed(2) + '–' + bin.p75.toFixed(2) +
+      ' · scatter ' + (bin.cv * 100).toFixed(0) + '% · ' + bin.n + ' runs' +
+      (bin.clipped ? ' · clipped' : '')
+    : d.toFixed(0) + ' m';
+
+  if (map && bin) map.setMarker(bin.lat, bin.lon);
+  if (ev.cancelable) ev.preventDefault();
+}
+
+$('frame').addEventListener('mousemove', frameHover);
+$('frame').addEventListener('touchmove', frameHover, { passive: false });
+$('frame').addEventListener('mouseleave', () => drawFrame());
+window.addEventListener('resize', () => drawFrame());
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+</script>
+</body>
+</html>

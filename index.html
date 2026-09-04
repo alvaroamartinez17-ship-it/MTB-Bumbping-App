@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#12151a">
+<!-- No external scripts, styles, images or connections. 'self' only, and
+     connect-src 'none' means this page cannot make a network request even if
+     something managed to inject code that tried to. -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline';
+               style-src 'self' 'unsafe-inline'; img-src 'self' data:;
+               connect-src 'none'; form-action 'none'; base-uri 'none';
+               object-src 'none'; frame-ancestors 'none'">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.svg">
+<title>MTB Bump — Record</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<header>
+  <h1>MTB Bump</h1>
+  <nav>
+    <span id="store" class="tag">local only</span>
+    <a href="analyse.html">Analyse →</a>
+  </nav>
+</header>
+
+<main>
+
+  <div id="updatebar" class="updatebar" hidden>
+    <span data-i18n="update.available"></span>
+    <button id="update-apply" data-i18n="update.apply"></button>
+  </div>
+
+  <section id="gate" class="card">
+    <p data-i18n="gate.intro"></p>
+    <button id="grant" class="primary" data-i18n="gate.button">Enable sensors</button>
+    <p id="gate-msg" class="muted"></p>
+  </section>
+
+  <section id="app" hidden>
+
+    <div id="state" class="state idle">
+      <b id="state-label">Idle</b>
+      <span id="state-sub">Start a session at the top</span>
+    </div>
+
+    <div class="meter" id="meter">
+      <div class="meter-bar" id="bar"></div>
+      <div class="meter-mid"></div>
+      <div class="meter-value" id="vert">+0.00 g</div>
+    </div>
+
+    <div class="stats">
+      <div><b id="grade">—</b><span data-i18n="stat.grade">grade %</span></div>
+      <div><b id="peak">0.00</b><span data-i18n="stat.peak">peak g</span></div>
+      <div><b id="rate">0</b><span data-i18n="stat.rate">Hz actual</span></div>
+    </div>
+    <div class="stats">
+      <div><b id="runs-count">0</b><span data-i18n="stat.runs">runs kept</span></div>
+      <div><b id="elapsed">0:00</b><span data-i18n="stat.session">session</span></div>
+      <div><b id="gps">no fix</b><span data-i18n="stat.gps">gps</span></div>
+    </div>
+
+    <p id="warn" class="warn" hidden></p>
+
+    <div id="fields">
+      <input id="name" type="text" data-i18n-ph="field.name">
+
+      <details class="card" id="setupbox" open>
+        <summary data-i18n="setup.title">Bike setup</summary>
+        <p class="muted small" data-i18n="setup.intro"></p>
+
+        <div class="row">
+          <select id="setup-preset"></select>
+          <button id="setup-last" data-i18n="setup.sameAsLast">Same as last session</button>
+        </div>
+
+        <div id="setup-core"></div>
+
+        <details>
+          <summary class="small" data-i18n="setup.fork">Fork</summary>
+          <p class="muted small" data-i18n="setup.clicksHint"></p>
+          <div id="setup-fork"></div>
+        </details>
+        <details>
+          <summary class="small" data-i18n="setup.shock">Shock</summary>
+          <p class="muted small" data-i18n="setup.clicksHint"></p>
+          <div id="setup-shock"></div>
+        </details>
+        <details>
+          <summary class="small" data-i18n="setup.advanced">Extras</summary>
+          <div id="setup-extra"></div>
+        </details>
+
+        <label><span data-i18n="setup.units">Pressure units</span>
+          <select id="setup-units">
+            <option value="psi">psi</option>
+            <option value="bar">bar</option>
+          </select></label>
+
+        <div class="row">
+          <input id="setup-presetname" type="text" data-i18n-ph="setup.presetName">
+          <button id="setup-presetsave" data-i18n="setup.presetSave">Save as preset</button>
+        </div>
+        <p id="setup-msg" class="muted small"></p>
+      </details>
+
+      <details class="card" id="mountbox">
+        <summary data-i18n="mount.title">Mount check</summary>
+        <p class="muted small" data-i18n="mount.intro"></p>
+        <div class="row">
+          <button id="mount-run" data-i18n="mount.run">Run mount check</button>
+        </div>
+        <p id="mount-msg" class="muted small"></p>
+        <p id="mount-hist" class="muted small"></p>
+      </details>
+    </div>
+
+    <button id="toggle" class="primary" data-i18n="btn.start">Start session</button>
+    <button id="manual" hidden data-i18n="btn.force">Force record this run</button>
+
+    <p id="log" class="muted small"></p>
+
+    <details class="card">
+      <summary>First run checklist</summary>
+      <ol class="muted">
+        <li><b>Wait for GPS before you drop in.</b> With no SIM there's no
+            assistance data, so a cold fix takes one to three minutes instead of
+            seconds. Stand still with a clear view of the sky until the GPS
+            readout goes green.</li>
+        <li>Phone flat on a table, screen up, then
+            <button id="calibrate" class="link">calibrate sign</button>
+            <span id="cal-msg"></span></li>
+        <li>Settings → Display &amp; Brightness → Auto-Lock → <b>Never</b>.</li>
+        <li>Low Power Mode off — it throttles the sensor callbacks.</li>
+        <li>Keep Safari in front. Switching apps suspends the page.</li>
+        <li>Runs need <b>30 m of vertical drop</b> to be kept. Anything less is
+            discarded as a dip rather than a trail — the log line below tells you
+            what was thrown away and why.</li>
+      </ol>
+    </details>
+
+    <h2 data-i18n="runs.title">Runs on this phone</h2>
+    <ul id="runs" class="runs"></ul>
+
+    <details class="card" id="backupbox">
+      <summary data-i18n="backup.title">Backup and export</summary>
+      <p class="muted small">
+        Runs are stored only on this phone. Nothing is uploaded anywhere. Export
+        writes a file you choose the destination for.
+      </p>
+      <label>Passphrase (encrypts the file)
+        <input id="bk-pass" type="password" placeholder="at least 8 characters"
+               autocapitalize="off" autocorrect="off"></label>
+      <label>Trim from each end of every track
+        <select id="bk-trim">
+          <option value="0">nothing</option>
+          <option value="100" selected>100 m</option>
+          <option value="250">250 m</option>
+        </select></label>
+      <div class="row">
+        <button id="bk-export" class="primary-sm">Export encrypted</button>
+        <button id="bk-plain">Export unencrypted</button>
+      </div>
+      <label>Restore from a backup file
+        <input id="bk-file" type="file" accept=".json,application/json"></label>
+      <p id="bk-msg" class="muted small"></p>
+      <p class="muted small">
+        Trimming removes the start and end of each track, which is usually your
+        home or a regular parking spot. It reduces obvious exposure; it is not
+        anonymisation, since a trail you ride weekly identifies you on its own.
+      </p>
+      <div class="row"><button id="bk-wipe" class="danger">Erase all runs</button></div>
+    </details>
+
+    <details class="card">
+      <summary data-i18n="settings.title">Settings</summary>
+      <label><span data-i18n="settings.language">Language</span>
+        <select id="lang">
+          <option value="en">English</option>
+          <option value="de">Deutsch</option>
+        </select></label>
+      <p id="datepreview" class="muted small"></p>
+    </details>
+
+    <details class="card">
+      <summary data-i18n="update.title">App version</summary>
+      <p id="ver" class="muted small"></p>
+      <p class="muted small" data-i18n="update.policy"></p>
+      <p id="lastcheck" class="muted small"></p>
+      <div class="row">
+        <button id="update-check" data-i18n="update.check">Check for updates</button>
+      </div>
+      <p id="update-msg" class="muted small"></p>
+    </details>
+
+    <details class="card">
+      <summary data-i18n="uninstall.title">Remove this app</summary>
+      <p class="muted small" data-i18n="uninstall.warn"></p>
+      <p id="storage-msg" class="muted small"></p>
+      <div class="row">
+        <button id="erase-all" class="danger" data-i18n="uninstall.button">Erase everything</button>
+      </div>
+      <p id="erase-msg" class="muted small"></p>
+    </details>
+
+    <details class="card">
+      <summary data-i18n="detect.title">Descent detection</summary>
+      <p class="muted small">
+        GPS altitude is noisy, so these are worth adjusting once you've seen how
+        it behaves on your trails. Grade is metres down per metre along.
+      </p>
+      <label>Start below grade <input id="opt-enter" type="number" step="0.5" value="-3"> %</label>
+      <label>Stop above grade <input id="opt-exit" type="number" step="0.5" value="-0.8"> %</label>
+      <label>Discard runs under <input id="opt-drop" type="number" step="5" min="15" value="30"> m drop</label>
+      <label>Discard runs under <input id="opt-len" type="number" step="10" value="100"> m long</label>
+      <label>Rejoin if descending again within <input id="opt-rejoin" type="number" step="5" value="45"> s</label>
+      <button id="opt-save">Apply</button>
+    </details>
+
+  </section>
+</main>
+
+<script src="js/i18n.js"></script>
+<script src="js/setup.js"></script>
+<script src="js/store.js"></script>
+<script src="js/appmanage.js"></script>
+<script src="js/crypto.js"></script>
+<script src="js/analysis.js"></script>
+<script src="js/backup.js"></script>
+<script src="js/descent.js"></script>
+<script src="js/recorder.js"></script>
+<script>
+const { SessionRecorder, WakeLock } = window.Recorder;
+const Store = window.Store;
+const rec = new SessionRecorder();
+const $ = (id) => document.getElementById(id);
+const fmtTime = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
+// Ask the browser to protect this data from eviction, and show how much
+// there is. Home Screen installation is what actually matters; this is extra.
+Store.requestPersistence().then(function (ok) {
+  $('store').textContent = ok ? 'stored on device' : 'local only';
+  $('store').className = 'tag ' + (ok ? 'ok' : '');
+});
+
+/* ---- permission gate ---- */
+
+$('grant').addEventListener('click', function () {
+  if (!isSecureContext) {
+    $('gate-msg').textContent = 'This page must be served over HTTPS.';
+    return;
+  }
+  if (!SessionRecorder.supported()) {
+    $('gate-msg').textContent = 'No DeviceMotion or geolocation in this browser.';
+    return;
+  }
+  SessionRecorder.requestPermission().then(function (state) {
+    if (state !== 'granted') {
+      $('gate-msg').textContent =
+        'Denied. Settings → Safari → Motion & Orientation Access, then reload.';
+      return;
+    }
+    // Warm the GPS up now so the cold fix is out of the way before you ride.
+    navigator.geolocation.getCurrentPosition(function () {}, function () {}, 
+      { enableHighAccuracy: true });
+    $('gate').hidden = true;
+    $('app').hidden = false;
+    refreshRuns();
+
+  }).catch(function (e) { $('gate-msg').textContent = String(e); });
+});
+
+/* ---- live readout ---- */
+
+rec.addEventListener('tick', function (e) {
+  const d = e.detail;
+  $('vert').textContent = (d.vert >= 0 ? '+' : '') + d.vert.toFixed(2) + ' g';
+  $('peak').textContent = d.peak.toFixed(2);
+  $('rate').textContent = d.rate.toFixed(0);
+  $('elapsed').textContent = fmtTime(d.elapsed);
+  $('runs-count').textContent = d.segments;
+  $('grade').textContent = d.grade === null ? '—' : I18n.num(d.grade * 100, 1);
+
+  if (d.gpsAge === null) {
+    $('gps').textContent = I18n.t('stat.nofix');
+    $('gps').className = 'bad';
+  } else if (d.gpsAge > 10) {
+    $('gps').textContent = I18n.t('stat.stale');
+    $('gps').className = 'warnc';
+  } else {
+    $('gps').textContent = d.fixes + ' ' + I18n.t('stat.fix');
+    $('gps').className = 'goodc';
+  }
+
+  const frac = Math.max(-1, Math.min(1, d.vert / 4));
+  const bar = $('bar');
+  bar.style.height = Math.abs(frac) * 50 + '%';
+  bar.style.top = frac >= 0 ? (50 - Math.abs(frac) * 50) + '%' : '50%';
+  bar.className = 'meter-bar ' +
+    (Math.abs(d.vert) > 3 ? 'hot' : Math.abs(d.vert) > 1.5 ? 'warm' : '');
+
+  setState(d);
+
+  if (d.clipped > 0) {
+    warn('Sensor saturated on ' + d.clipped + ' samples. Peaks there are lower bounds.');
+  } else if (d.rate > 0 && d.rate < 40 && d.samples > 400) {
+    warn('Only ' + d.rate.toFixed(0) + ' Hz — the browser is throttling. Check Low Power Mode.');
+  }
+});
+
+function setState(d) {
+  const el = $('state');
+  if (!rec.active) {
+    el.className = 'state idle';
+    $('state-label').textContent = I18n.t('state.idle');
+    $('state-sub').textContent = I18n.t('state.idle.sub');
+  } else if (d.recording) {
+    el.className = 'state rec';
+    $('state-label').textContent = I18n.t('state.rec');
+    $('state-sub').textContent = I18n.int(d.segmentSamples);
+  } else if (d.paused) {
+    el.className = 'state paused';
+    $('state-label').textContent = I18n.t('state.holding');
+    $('state-sub').textContent = I18n.t('state.holding.sub');
+  } else {
+    el.className = 'state armed';
+    $('state-label').textContent = I18n.t('state.armed');
+    $('state-sub').textContent = I18n.t('state.armed.sub');
+  }
+}
+
+function warn(msg) { $('warn').hidden = false; $('warn').textContent = msg; }
+function log(msg) {
+  $('log').textContent = new Date().toLocaleTimeString().slice(0, 5) + ' · ' + msg;
+}
+
+rec.addEventListener('gpserror', function (e) { warn('GPS: ' + e.detail); });
+rec.addEventListener('segmentstart', function (e) {
+  log('descent detected, ' + (e.detail.grade * 100).toFixed(1) + '% grade');
+});
+rec.addEventListener('segmentpaused', function () {
+  log('flattened out — holding in case the trail continues');
+});
+rec.addEventListener('segmentresumed', function () {
+  log('descending again — same run');
+});
+rec.addEventListener('segmentsaved', function (e) {
+  log('saved ' + e.detail.descent.length + ' m, ' + e.detail.descent.drop + ' m drop');
+  refreshRuns();
+});
+rec.addEventListener('discarded', function (e) {
+  log('discarded: ' + e.detail.drop.toFixed(0) + ' m drop over ' +
+      Math.round(e.detail.dist) + ' m — under the 30 m minimum');
+});
+
+/* ---- session control ---- */
+
+$('toggle').addEventListener('click', function () {
+  if (rec.active) {
+    rec.endSession().then(function (saved) {
+      WakeLock.release();
+      window.AppManage.busy = false;
+      $('toggle').textContent = I18n.t('btn.start');
+      $('toggle').classList.remove('recording');
+      $('manual').hidden = true;
+      $('fields').hidden = false;
+      log('session ended, ' + saved.length + ' run(s) kept on this phone');
+      refreshRuns();
+      setState({ recording: false });
+    });
+  } else {
+    readSetupForm();
+    var missing = B.validate(currentSetup);
+    if (missing.length) {
+      $('setupbox').open = true;
+      $('setup-msg').textContent = I18n.t('setup.required');
+      return;
+    }
+    B.saveLast(currentSetup);
+    WakeLock.acquire();
+    rec.startSession({
+      name: $('name').value,
+      notes: currentSetup.note || '',
+      setup: currentSetup,
+    });
+    window.AppManage.busy = true;
+    $('toggle').textContent = I18n.t('btn.end');
+    $('toggle').classList.add('recording');
+    $('manual').hidden = false;
+    $('fields').hidden = true;
+    $('warn').hidden = true;
+    log('session started — climbing will not be logged');
+  }
+});
+
+$('manual').addEventListener('click', function () {
+  const on = rec.toggleManual();
+  $('manual').textContent = I18n.t(on ? 'btn.forceStop' : 'btn.force');
+  $('manual').classList.toggle('recording', on);
+});
+
+$('calibrate').addEventListener('click', function (e) {
+  e.preventDefault();
+  $('cal-msg').textContent = ' hold still…';
+  rec.calibrateSign().then(function (flipped) {
+    $('cal-msg').textContent = flipped === null
+      ? ' no data — enable sensors first'
+      : ' done (sign ' + (flipped ? 'inverted' : 'normal') + ')';
+  });
+});
+
+$('opt-save').addEventListener('click', function () {
+  Object.assign(rec.detector.opts, {
+    enterGrade: parseFloat($('opt-enter').value) / 100,
+    exitGrade: parseFloat($('opt-exit').value) / 100,
+    minDrop: window.Descent.DescentDetector.clampMinDrop($('opt-drop').value),
+    minLength: parseFloat($('opt-len').value),
+    rejoinGap: parseFloat($('opt-rejoin').value),
+  });
+  $('opt-drop').value = rec.detector.opts.minDrop;
+  log('detection thresholds applied');
+});
+
+/* ---- saved runs ---- */
+
+function refreshRuns() {
+  Store.all().then(function (runs) {
+    runs.sort(function (a, b) { return a.startedAt < b.startedAt ? 1 : -1; });
+    const ul = $('runs');
+    ul.innerHTML = '';
+
+    if (!runs.length) {
+      ul.innerHTML = '<li class="muted">' + I18n.t('runs.empty') + '</li>'; return;
+    }
+
+    runs.forEach(function (run) {
+      const s = window.Analysis.summarise(run);
+      const li = document.createElement('li');
+      li.innerHTML =
+        '<div class="run-head"><b>' + escapeHtml(run.name) + '</b></div>' +
+        (run.setup ? '<div class="muted small">' +
+          escapeHtml(window.BikeSetup.summary(run.setup)) + '</div>' : '') +
+        '<div class="muted small">' + I18n.dateTime(run.startedAt) +
+        ' · ' + (run.descent ? run.descent.length + ' m, ' + run.descent.drop + ' m drop' : '') +
+        ' · ' + run.sampleRateHz.toFixed(0) + ' Hz</div>' +
+        '<div class="muted small">RMS ' + s.rms.toFixed(2) + ' m/s² · energy/m ' +
+        s.energyPerMetre.toFixed(2) + ' · peak ' +
+        (s.peak / window.Analysis.G).toFixed(1) + ' g</div>';
+
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.append(
+        mkButton(I18n.t('btn.export'), function () { download(run); }),
+        mkButton(I18n.t('btn.delete'), function () {
+          if (confirm('Delete ' + run.name + '?')) Store.remove(run.id).then(refreshRuns);
+        }, 'danger')
+      );
+      li.append(row);
+      ul.append(li);
+    });
+  });
+}
+
+function mkButton(label, fn, cls) {
+  const b = document.createElement('button');
+  b.textContent = label;
+  if (cls) b.className = cls;
+  b.addEventListener('click', fn);
+  return b;
+}
+
+// One run, unencrypted, straight to Files. For a full encrypted backup use
+// the Backup panel.
+function download(run) {
+  const blob = new Blob([JSON.stringify(run)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'mtbbump-' + I18n.fileStamp(new Date(run.startedAt)) + '-' +
+               run.id.slice(0, 8) + '.json';
+  a.click();
+  setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+}
+
+
+
+
+/* ---- bike setup ---- */
+
+var B = window.BikeSetup;
+var currentSetup = B.last();
+
+function fieldRow(f) {
+  var label = '<span>' + I18n.t('setup.' + f.key) + '</span>';
+  var id = 'sf-' + f.key;
+  if (f.type === 'select') {
+    var opts = f.options.map(function (o) {
+      return '<option value="' + o + '">' + I18n.t('setup.mount.' + o) + '</option>';
+    }).join('');
+    return '<label>' + label + '<select id="' + id + '">' + opts + '</select></label>';
+  }
+  if (f.type === 'text') {
+    return '<label>' + label + '<input id="' + id + '" type="text"></label>';
+  }
+  var step = f.type === 'pressure' ? (B.units === 'bar' ? '0.05' : '0.5') : '1';
+  var unit = f.type === 'pressure' ? ' (' + B.units + ')' : '';
+  return '<label><span>' + I18n.t('setup.' + f.key) + unit + '</span>' +
+         '<input id="' + id + '" type="number" step="' + step +
+         '" inputmode="decimal"></label>';
+}
+
+function renderSetup() {
+  ['core', 'fork', 'shock', 'extra'].forEach(function (g) {
+    var el = $('setup-' + g);
+    if (!el) return;
+    el.innerHTML = B.FIELDS.filter(function (f) { return f.group === g; })
+      .map(fieldRow).join('');
+  });
+  $('setup-units').value = B.units;
+  fillSetupForm(currentSetup);
+  renderPresets();
+
+  B.FIELDS.forEach(function (f) {
+    var el = $('sf-' + f.key);
+    if (el) el.addEventListener('change', readSetupForm);
+  });
+}
+
+function fillSetupForm(setup) {
+  B.FIELDS.forEach(function (f) {
+    var el = $('sf-' + f.key);
+    if (!el) return;
+    var v = setup[f.key];
+    if (f.type === 'pressure') {
+      el.value = (v === null || v === undefined) ? ''
+        : Math.round(B.toDisplay(v) * 100) / 100;
+    } else {
+      el.value = (v === null || v === undefined) ? '' : v;
+    }
+  });
+}
+
+function readSetupForm() {
+  var out = {};
+  B.FIELDS.forEach(function (f) {
+    var el = $('sf-' + f.key);
+    if (!el) { out[f.key] = currentSetup[f.key]; return; }
+    if (f.type === 'pressure') out[f.key] = B.fromDisplay(el.value);
+    else if (f.type === 'clicks') out[f.key] = el.value === '' ? null : parseFloat(el.value);
+    else out[f.key] = el.value;
+  });
+  currentSetup = out;
+  return out;
+}
+
+function renderPresets() {
+  var sel = $('setup-preset');
+  var list = B.presets();
+  sel.innerHTML = '<option value="">' + I18n.t('setup.preset') + '…</option>' +
+    list.map(function (p) {
+      return '<option value="' + escapeHtml(p.name) + '">' + escapeHtml(p.name) + '</option>';
+    }).join('');
+}
+
+$('setup-preset').addEventListener('change', function () {
+  var p = B.presets().find(function (x) { return x.name === $('setup-preset').value; });
+  if (!p) return;
+  currentSetup = Object.assign(B.blank(), p.setup);
+  fillSetupForm(currentSetup);
+  $('setup-msg').textContent = p.name;
+});
+
+$('setup-last').addEventListener('click', function () {
+  currentSetup = B.last();
+  fillSetupForm(currentSetup);
+  $('setup-msg').textContent = '';
+});
+
+$('setup-units').addEventListener('change', function () {
+  readSetupForm();
+  B.setUnits($('setup-units').value);
+  renderSetup();
+
+/* ---- mount check ---- */
+
+function showMountHistory() {
+  var h = B.mountHistory(currentSetup);
+  if (!h.length) { $('mount-hist').textContent = ''; return; }
+  var best = Math.min.apply(null, h.map(function (x) { return x.rms; }));
+  $('mount-hist').textContent = I18n.t('mount.baseline') + ': ' +
+    I18n.num(best, 1) + ' mg · ' + h.length + '×';
+}
+showMountHistory();
+
+$('mount-run').addEventListener('click', function () {
+  readSetupForm();
+  $('mount-msg').textContent = I18n.t('mount.running');
+  $('mount-run').disabled = true;
+  rec.mountCheck(10).then(function (r) {
+    $('mount-run').disabled = false;
+    if (!r) { $('mount-msg').textContent = I18n.t('gate.denied'); return; }
+    if (r.moved) { $('mount-msg').textContent = I18n.t('mount.moved'); return; }
+
+    var verdict = B.mountVerdict(currentSetup, r.rms);
+    B.recordMountCheck(currentSetup, r.rms);
+
+    var line = I18n.t('mount.result') + ': ' + I18n.num(r.rms, 1) + ' mg. ';
+    if (verdict.state === 'first') line += I18n.t('mount.first');
+    else if (verdict.state === 'drift') line += I18n.t('mount.drift');
+    else line += I18n.t('mount.good');
+
+    $('mount-msg').textContent = line;
+    $('mount-msg').className = 'small ' +
+      (verdict.state === 'drift' ? 'warn-inline' : 'muted');
+    showMountHistory();
+  });
+});
+});
+
+$('setup-presetsave').addEventListener('click', function () {
+  readSetupForm();
+  try {
+    B.savePreset($('setup-presetname').value, currentSetup);
+    $('setup-presetname').value = '';
+    renderPresets();
+    $('setup-msg').textContent = I18n.t('setup.presetSave');
+  } catch (e) {
+    $('setup-msg').textContent = e.message;
+  }
+});
+
+renderSetup();
+
+/* ---- mount check ---- */
+
+function showMountHistory() {
+  var h = B.mountHistory(currentSetup);
+  if (!h.length) { $('mount-hist').textContent = ''; return; }
+  var best = Math.min.apply(null, h.map(function (x) { return x.rms; }));
+  $('mount-hist').textContent = I18n.t('mount.baseline') + ': ' +
+    I18n.num(best, 1) + ' mg · ' + h.length + '×';
+}
+showMountHistory();
+
+$('mount-run').addEventListener('click', function () {
+  readSetupForm();
+  $('mount-msg').textContent = I18n.t('mount.running');
+  $('mount-run').disabled = true;
+  rec.mountCheck(10).then(function (r) {
+    $('mount-run').disabled = false;
+    if (!r) { $('mount-msg').textContent = I18n.t('gate.denied'); return; }
+    if (r.moved) { $('mount-msg').textContent = I18n.t('mount.moved'); return; }
+
+    var verdict = B.mountVerdict(currentSetup, r.rms);
+    B.recordMountCheck(currentSetup, r.rms);
+
+    var line = I18n.t('mount.result') + ': ' + I18n.num(r.rms, 1) + ' mg. ';
+    if (verdict.state === 'first') line += I18n.t('mount.first');
+    else if (verdict.state === 'drift') line += I18n.t('mount.drift');
+    else line += I18n.t('mount.good');
+
+    $('mount-msg').textContent = line;
+    $('mount-msg').className = 'small ' +
+      (verdict.state === 'drift' ? 'warn-inline' : 'muted');
+    showMountHistory();
+  });
+});
+
+/* ---- backup ---- */
+
+function bkOpts() {
+  return {
+    passphrase: $('bk-pass').value,
+    trimMetres: parseInt($('bk-trim').value, 10) || 0,
+  };
+}
+
+$('bk-export').addEventListener('click', function () {
+  const o = bkOpts();
+  if (!o.passphrase || o.passphrase.length < 8) {
+    $('bk-msg').textContent = 'Enter a passphrase of at least 8 characters.';
+    return;
+  }
+  $('bk-msg').textContent = 'encrypting… (a few seconds on this phone)';
+  window.Backup.exportAll(o).then(function (r) {
+    $('bk-msg').textContent = r.count + ' run(s) exported, encrypted. ' +
+      'Without the passphrase the file is unreadable — including by you.';
+  }).catch(function (e) { $('bk-msg').textContent = e.message; });
+});
+
+$('bk-plain').addEventListener('click', function () {
+  if (!confirm('Export without encryption?\n\nThe file will contain your GPS ' +
+               'tracks in the clear. Anyone who opens it can see where you rode.')) return;
+  window.Backup.exportAll({ trimMetres: bkOpts().trimMetres }).then(function (r) {
+    $('bk-msg').textContent = r.count + ' run(s) exported unencrypted. ' +
+      'Keep the file somewhere you control.';
+  }).catch(function (e) { $('bk-msg').textContent = e.message; });
+});
+
+$('bk-file').addEventListener('change', function (ev) {
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  $('bk-msg').textContent = 'restoring…';
+  window.Backup.importFile(file, $('bk-pass').value).then(function (r) {
+    $('bk-msg').textContent = 'Added ' + r.added + ', skipped ' + r.skipped +
+      ' already present.';
+    refreshRuns();
+  }).catch(function (e) { $('bk-msg').textContent = e.message; });
+  ev.target.value = '';
+});
+
+$('bk-wipe').addEventListener('click', function () {
+  if (!confirm('Erase every run on this phone?\n\nThis cannot be undone. ' +
+               'Export a backup first if you want to keep them.')) return;
+  window.Backup.wipeAll().then(function (n) {
+    $('bk-msg').textContent = n + ' run(s) erased.';
+    refreshRuns();
+  });
+});
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+</script>
+</body>
+</html>
