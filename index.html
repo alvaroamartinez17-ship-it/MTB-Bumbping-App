@@ -2,777 +2,3067 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Bumplog</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#15120E">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#12151a">
-<!-- No external scripts, styles, images or connections. 'self' only, and
-     connect-src 'none' means this page cannot make a network request even if
-     something managed to inject code that tried to. -->
-<meta http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-inline';
-               style-src 'self' 'unsafe-inline'; img-src 'self' data:;
-               connect-src 'none'; form-action 'none'; base-uri 'none';
-               object-src 'none'; frame-ancestors 'none'">
-<link rel="manifest" href="manifest.json">
-<link rel="apple-touch-icon" href="icon.svg">
-<title>MTB Bump — Record</title>
-<link rel="stylesheet" href="css/app.css">
+<meta name="apple-mobile-web-app-title" content="Bumplog">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<style>
+:root{
+  --ink:#15120E;
+  --panel:#1F1A15;
+  --panel2:#2A241D;
+  --rule:#382F27;
+  --cream:#F0E7D7;
+  --dust:#998C79;
+  --orange:#F4671F;
+  --green:#7BC28C;
+  --red:#DC4A3D;
+  --air:#E8C25A;
+  --pad:16px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  margin:0;
+  background:var(--ink);
+  color:var(--cream);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  font-size:16px;
+  line-height:1.45;
+  overscroll-behavior:none;
+  -webkit-user-select:none;user-select:none;
+}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+.num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;letter-spacing:-0.01em}
+
+/* ---------- shell ---------- */
+#app{
+  display:flex;flex-direction:column;
+  height:100vh;height:-webkit-fill-available;
+  padding-top:env(safe-area-inset-top);
+}
+.screen{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;display:none;flex-direction:column}
+.screen.on{display:flex}
+/* a flex column shrinks its children to fit; without this the long screens get
+   squashed into the viewport instead of scrolling */
+.screen > *{flex-shrink:0}
+
+/* ---------- status strip ---------- */
+.strip{
+  display:flex;align-items:center;gap:14px;
+  padding:10px var(--pad);
+  border-bottom:1px solid var(--rule);
+  font-size:13px;color:var(--dust);
+  flex:0 0 auto;overflow:hidden;
+}
+.sensor{display:flex;align-items:center;gap:6px;min-width:0}
+.sensor span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--rule);flex:0 0 auto}
+.dot.live{background:var(--green)}
+.dot.warn{background:var(--orange)}
+.dot.bad{background:var(--red)}
+.strip .right{margin-left:auto;flex:0 0 auto;white-space:nowrap;font-variant-numeric:tabular-nums}
+
+/* ---------- record screen ---------- */
+.readout{padding:22px var(--pad) 6px}
+.clock{
+  font-size:60px;line-height:1;font-weight:700;
+  font-variant-numeric:tabular-nums;letter-spacing:-0.03em;
+  margin:0;
+}
+.clock.idle{color:var(--dust)}
+.metrics{display:flex;gap:26px;margin-top:14px}
+.metric .v{font-size:24px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.1}
+.metric .k{font-size:12px;color:var(--dust);margin-top:2px}
+
+/* ---------- trace ---------- */
+.trace{
+  position:relative;margin:18px var(--pad) 0;
+  border:1px solid var(--rule);border-radius:3px;
+  background:var(--panel);
+  height:150px;overflow:hidden;
+}
+.trace canvas{display:block;width:100%;height:100%}
+.trace .peak{
+  position:absolute;right:8px;top:6px;
+  font-size:12px;color:var(--dust);font-variant-numeric:tabular-nums;
+}
+.tracefoot{
+  display:flex;flex-wrap:wrap;gap:8px 18px;padding:8px var(--pad) 0;
+  font-size:12px;color:var(--dust);font-variant-numeric:tabular-nums;
+}
+.tracefoot b{color:var(--cream);font-weight:600}
+
+.note{
+  margin:14px var(--pad) 0;padding:11px 13px;
+  border-left:2px solid var(--orange);
+  background:var(--panel);
+  font-size:13px;color:var(--dust);line-height:1.5;
+}
+.note.hide{display:none}
+
+/* ---------- record button ---------- */
+.control{
+  flex:0 0 auto;
+  padding:20px var(--pad) calc(14px + env(safe-area-inset-bottom));
+  display:flex;justify-content:center;
+}
+.rec{
+  width:100%;max-width:340px;height:64px;border-radius:4px;
+  background:var(--orange);color:#1A1105;
+  font-size:19px;font-weight:700;letter-spacing:0.01em;
+  display:flex;align-items:center;justify-content:center;gap:10px;
+  transition:transform .08s ease, background .15s ease;
+}
+.rec:active{transform:scale(.985)}
+.rec[disabled]{background:var(--panel2);color:var(--dust)}
+.rec.stop{background:var(--red);color:#FFF2F0}
+.rec .blip{width:11px;height:11px;border-radius:50%;background:currentColor}
+.rec.stop .blip{border-radius:2px;animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.rec.stop .blip{animation:none}}
+
+/* ---------- tabs ---------- */
+.tabs{
+  flex:0 0 auto;display:flex;border-top:1px solid var(--rule);
+  padding-bottom:env(safe-area-inset-bottom);
+}
+.tab{flex:1;padding:13px 0;text-align:center;font-size:14px;color:var(--dust)}
+.tab.on{color:var(--cream);box-shadow:inset 0 2px 0 var(--orange)}
+.tab .badge{color:var(--dust);font-variant-numeric:tabular-nums}
+
+/* ---------- rides ---------- */
+.head{
+  display:flex;align-items:baseline;gap:10px;
+  padding:18px var(--pad) 10px;
+}
+.head h2{margin:0;font-size:22px;font-weight:700;letter-spacing:-0.02em}
+.head{flex-wrap:wrap}
+.head .sub{
+  font-size:13px;color:var(--dust);margin-left:auto;
+  font-variant-numeric:tabular-nums;white-space:nowrap;
+}
+.list{list-style:none;margin:0;padding:0 0 24px}
+.list li{display:flex;align-items:stretch;border-top:1px solid var(--rule)}
+.list li:last-child{border-bottom:1px solid var(--rule)}
+.list li.empty{display:block;border:0}
+.ride{
+  flex:1;min-width:0;
+  display:flex;align-items:center;gap:12px;
+  text-align:left;
+  padding:13px var(--pad);
+}
+.del{
+  flex:0 0 auto;padding:0 18px;color:var(--red);font-size:14.5px;
+  border-left:1px solid var(--rule);display:none;align-items:center;
+}
+.list.editing .del{display:flex}
+.list li.sect,.list li.sub{display:block;border:0}
+.sect{
+  padding:26px var(--pad) 6px;
+  font-size:23px;font-weight:700;letter-spacing:-0.03em;
+}
+.sect span{
+  display:block;font-weight:400;color:var(--dust);font-size:13px;
+  margin:2px 0 0;letter-spacing:0;
+}
+.sub{
+  padding:15px var(--pad) 9px;
+  font-size:13px;color:var(--dust);
+  border-top:1px solid var(--rule);
+}
+.subtop{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.subname{color:var(--cream);font-weight:600;font-size:17.5px;letter-spacing:-0.02em}
+.subfacts{margin-top:3px;font-variant-numeric:tabular-nums}
+.sub b{color:var(--cream);font-weight:600}
+.sub button{color:var(--orange);font-size:14px;flex:0 0 auto}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;padding:10px var(--pad) 0;font-size:12.5px}
+.legend span{display:flex;align-items:center;gap:6px;color:var(--dust)}
+.legend i{width:11px;height:3px;border-radius:2px;flex:0 0 auto}
+#mapBox{height:400px;margin:0;background:var(--panel);border-bottom:1px solid var(--rule)}
+.leaflet-container{background:var(--panel)!important;font-family:-apple-system,sans-serif}
+.leaflet-control-attribution{font-size:10px}
+.ride .when{display:block;font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
+.ride .facts{display:block;font-size:12.5px;color:var(--dust);font-variant-numeric:tabular-nums;margin-top:3px}
+.ride .facts i{font-style:normal;color:var(--rule);padding:0 7px}
+.ride canvas{width:66px;height:30px;flex:0 0 auto;margin-left:auto;opacity:.9}
+.empty{padding:40px var(--pad);color:var(--dust);font-size:14px;line-height:1.6}
+.empty b{display:block;color:var(--cream);font-size:16px;margin-bottom:6px;font-weight:600}
+
+/* ---------- setup ---------- */
+.strip button{font:inherit}
+.sensor.tapme{color:var(--orange)}
+.rows{padding:0 var(--pad)}
+.row{
+  display:flex;justify-content:space-between;align-items:baseline;gap:12px;
+  padding:12px 0;border-bottom:1px solid var(--rule);font-size:14.5px;
+  line-height:1.35;
+}
+.row > span:first-child{flex:0 1 auto;min-width:0}
+.row .rv{
+  flex:1 1 auto;min-width:0;color:var(--dust);
+  font-variant-numeric:tabular-nums;text-align:right;
+}
+.row .rv.ok{color:var(--green)}
+.row .rv.no{color:var(--red)}
+.btnrow{padding:18px var(--pad) 0;display:flex;flex-direction:column;gap:9px}
+.big{
+  padding:14px;border:1px solid var(--rule);border-radius:3px;
+  background:var(--panel);font-size:15px;text-align:center;
+}
+.big.go{background:var(--orange);color:#1A1105;border-color:var(--orange);font-weight:600}
+a.big{display:block;text-decoration:none;color:var(--cream)}
+#expText{
+  display:block;width:calc(100% - var(--pad) * 2);margin:16px var(--pad) 0;height:130px;
+  background:var(--panel);color:var(--dust);border:1px solid var(--rule);border-radius:3px;
+  font-family:ui-monospace,Menlo,monospace;font-size:11px;padding:9px;
+  -webkit-user-select:text;user-select:text;
+}
+.tip{padding:18px var(--pad) 30px;font-size:13px;color:var(--dust);line-height:1.6}
+.tip p{margin:0 0 11px}
+.tip b{color:var(--cream);font-weight:600}
+
+/* ---------- detail sheet ---------- */
+.sheet{
+  position:fixed;top:0;right:0;bottom:0;left:0;z-index:20;background:var(--ink);
+  display:none;flex-direction:column;
+  padding-top:env(safe-area-inset-top);
+}
+.plottitle{font-size:15px;font-weight:600;margin:24px var(--pad) 9px;letter-spacing:-0.01em}
+/* Sheets are all position:fixed at the same z-index, so the one later in the document
+   wins. Anything opened FROM another sheet has to be lifted above it explicitly. */
+#daySheet{z-index:25}
+#mapSheet{z-index:30}
+#expSheet{z-index:40}
+#mapBox{touch-action:none;overscroll-behavior:contain}
+.sheet.on{display:flex}
+.sheetbar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px var(--pad);border-bottom:1px solid var(--rule);flex:0 0 auto;
+}
+.sheetbar .t{font-size:16px;font-weight:600}
+.sheetbar button{font-size:15px;color:var(--orange)}
+.sheetbody{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:calc(28px + env(safe-area-inset-bottom))}
+.grid{display:flex;flex-wrap:wrap;padding:4px var(--pad) 0}
+.cell{width:50%;padding:14px 0;border-bottom:1px solid var(--rule)}
+.cell .v{font-size:23px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15}
+.cell .k{font-size:12px;color:var(--dust);margin-top:2px}
+.plot{margin:18px var(--pad) 0;border:1px solid var(--rule);border-radius:3px;background:var(--panel)}
+.plot canvas{display:block;width:100%}
+.plotcap{font-size:12px;color:var(--dust);margin:7px var(--pad) 0}
+.acts{padding:22px var(--pad) 0;display:flex;flex-direction:column;gap:9px}
+.act{
+  padding:14px;border:1px solid var(--rule);border-radius:3px;
+  background:var(--panel);font-size:15px;text-align:left;
+  display:flex;align-items:center;justify-content:space-between;
+}
+.act .hint{font-size:12px;color:var(--dust);font-variant-numeric:tabular-nums}
+.act.danger{color:var(--red);border-color:#4A2A26}
+
+/* ---------- toast ---------- */
+#toast{
+  position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom));
+  transform:translateX(-50%);
+  background:var(--panel2);border:1px solid var(--rule);
+  padding:11px 16px;border-radius:3px;font-size:14px;
+  max-width:86%;text-align:center;z-index:50;
+  opacity:0;pointer-events:none;transition:opacity .18s ease;
+}
+#toast.on{opacity:1}
+</style>
 </head>
 <body>
+<div id="app">
 
-<header>
-  <h1>MTB Bump</h1>
-  <nav>
-    <span id="store" class="tag">local only</span>
-    <a href="analyse.html">Analyse →</a>
-  </nav>
-</header>
-
-<main>
-  <div id="errbar" class="errbar" hidden></div>
-
-  <div id="updatebar" class="updatebar" hidden>
-    <span data-i18n="update.available"></span>
-    <button id="update-apply" data-i18n="update.apply"></button>
+  <div class="strip">
+    <button class="sensor" id="chipMotion"><i class="dot" id="dMotion"></i><span id="tMotion">Motion starting</span></button>
+    <button class="sensor" id="chipGps"><i class="dot" id="dGps"></i><span id="tGps">GPS off</span></button>
+    <span class="right" id="tStore"></span>
   </div>
 
-  <section id="gate" class="card">
-    <p data-i18n="gate.intro"></p>
-    <button id="grant" class="primary" data-i18n="gate.button">Enable sensors</button>
-    <p id="gate-msg" class="muted"></p>
-    <p class="muted small"><a href="check.html">Nothing happening? Run the self test →</a></p>
+  <!-- ============ RECORD ============ -->
+  <section class="screen on" id="scRec">
+    <div class="readout">
+      <p class="clock idle num" id="clock">0:00</p>
+      <div class="metrics">
+        <div class="metric"><div class="v num" id="mDist">0.00</div><div class="k">km ridden</div></div>
+        <div class="metric"><div class="v num" id="mSpeed">0</div><div class="k">km/h now</div></div>
+        <div class="metric"><div class="v num" id="mDrop">0</div><div class="k">m descended</div></div>
+      </div>
+    </div>
+
+    <div class="trace">
+      <canvas id="cvTrace"></canvas>
+      <div class="peak num" id="tracePeak"></div>
+    </div>
+    <div class="tracefoot">
+      <span><b id="fRms">0.00</b> g rms</span>
+      <span><b id="fHz">0</b> Hz</span>
+      <span><b id="fSamp">0</b> samples</span>
+      <span><b id="fFix">0</b> fixes</span>
+      <span><b id="fTurn">0</b> deg/s</span>
+      <span><b id="fAir">0</b> jumps</span>
+    </div>
+
+    <div class="note" id="note"></div>
+
+    <div style="flex:1"></div>
+
+    <div class="control">
+      <button class="rec" id="btnRec"><i class="blip"></i><span id="recLabel">Start recording</span></button>
+    </div>
   </section>
 
-  <section id="app" hidden>
-
-    <div id="state" class="state idle">
-      <b id="state-label">Idle</b>
-      <span id="state-sub">Start a session at the top</span>
+  <!-- ============ RIDES ============ -->
+  <section class="screen" id="scRides">
+    <div class="head">
+      <h2>Rides</h2>
+      <span class="sub" id="ridesSub" style="margin-left:auto"></span>
+      <button id="btnDay" style="font-size:15px;color:var(--orange)">Send a day</button>
+      <button id="btnEdit" style="font-size:15px;color:var(--orange)">Edit</button>
     </div>
-
-    <div class="meter" id="meter">
-      <div class="meter-bar" id="bar"></div>
-      <div class="meter-mid"></div>
-      <div class="meter-value" id="vert">+0.00 g</div>
-    </div>
-
-    <div class="stats">
-      <div><b id="grade">—</b><span data-i18n="stat.grade">grade %</span></div>
-      <div><b id="peak">0.00</b><span data-i18n="stat.peak">peak g</span></div>
-      <div><b id="rate">0</b><span data-i18n="stat.rate">Hz actual</span></div>
-    </div>
-    <div class="stats">
-      <div><b id="runs-count">0</b><span data-i18n="stat.runs">runs kept</span></div>
-      <div><b id="elapsed">0:00</b><span data-i18n="stat.session">session</span></div>
-      <div><b id="gps">no fix</b><span data-i18n="stat.gps">gps</span></div>
-    </div>
-
-    <p id="warn" class="warn" hidden></p>
-
-    <div id="fields">
-      <input id="name" type="text" data-i18n-ph="field.name">
-
-      <details class="card" id="setupbox" open>
-        <summary data-i18n="setup.title">Bike setup</summary>
-        <p class="muted small" data-i18n="setup.intro"></p>
-
-        <div class="row">
-          <select id="setup-preset"></select>
-          <button id="setup-last" data-i18n="setup.sameAsLast">Same as last session</button>
-        </div>
-
-        <div id="setup-core"></div>
-
-        <details>
-          <summary class="small" data-i18n="setup.fork">Fork</summary>
-          <p class="muted small" data-i18n="setup.clicksHint"></p>
-          <div id="setup-fork"></div>
-        </details>
-        <details>
-          <summary class="small" data-i18n="setup.shock">Shock</summary>
-          <p class="muted small" data-i18n="setup.clicksHint"></p>
-          <div id="setup-shock"></div>
-        </details>
-        <details>
-          <summary class="small" data-i18n="setup.advanced">Extras</summary>
-          <div id="setup-extra"></div>
-        </details>
-
-        <label><span data-i18n="setup.units">Pressure units</span>
-          <select id="setup-units">
-            <option value="psi">psi</option>
-            <option value="bar">bar</option>
-          </select></label>
-
-        <div class="row">
-          <input id="setup-presetname" type="text" data-i18n-ph="setup.presetName">
-          <button id="setup-presetsave" data-i18n="setup.presetSave">Save as preset</button>
-        </div>
-        <p id="setup-msg" class="muted small"></p>
-      </details>
-
-      <details class="card" id="mountbox">
-        <summary data-i18n="mount.title">Mount check</summary>
-        <p class="muted small" data-i18n="mount.intro"></p>
-        <div class="row">
-          <button id="mount-run" data-i18n="mount.run">Run mount check</button>
-        </div>
-        <p id="mount-msg" class="muted small"></p>
-        <p id="mount-hist" class="muted small"></p>
-      </details>
-    </div>
-
-    <button id="toggle" class="primary" data-i18n="btn.start">Start session</button>
-    <button id="manual" hidden data-i18n="btn.force">Force record this run</button>
-
-    <p id="log" class="muted small"></p>
-
-    <details class="card">
-      <summary>First run checklist</summary>
-      <ol class="muted">
-        <li><b>Wait for GPS before you drop in.</b> With no SIM there's no
-            assistance data, so a cold fix takes one to three minutes instead of
-            seconds. Stand still with a clear view of the sky until the GPS
-            readout goes green.</li>
-        <li>Phone flat on a table, screen up, then
-            <button id="calibrate" class="link">calibrate sign</button>
-            <span id="cal-msg"></span></li>
-        <li>Settings → Display &amp; Brightness → Auto-Lock → <b>Never</b>.</li>
-        <li>Low Power Mode off — it throttles the sensor callbacks.</li>
-        <li>Keep Safari in front. Switching apps suspends the page.</li>
-        <li>Runs need <b>30 m of vertical drop</b> to be kept. Anything less is
-            discarded as a dip rather than a trail — the log line below tells you
-            what was thrown away and why.</li>
-      </ol>
-    </details>
-
-    <h2 data-i18n="runs.title">Runs on this phone</h2>
-    <ul id="runs" class="runs"></ul>
-
-    <details class="card" id="backupbox">
-      <summary data-i18n="backup.title">Backup and export</summary>
-      <p class="muted small">
-        Runs are stored only on this phone. Nothing is uploaded anywhere. Export
-        writes a file you choose the destination for.
-      </p>
-      <label>Passphrase (encrypts the file)
-        <input id="bk-pass" type="password" placeholder="at least 8 characters"
-               autocapitalize="off" autocorrect="off"></label>
-      <label>Trim from each end of every track
-        <select id="bk-trim">
-          <option value="0">nothing</option>
-          <option value="100" selected>100 m</option>
-          <option value="250">250 m</option>
-        </select></label>
-      <div class="row">
-        <button id="bk-export" class="primary-sm">Export encrypted</button>
-        <button id="bk-plain">Export unencrypted</button>
-      </div>
-      <label>Restore from a backup file
-        <input id="bk-file" type="file" accept=".json,application/json"></label>
-      <p id="bk-msg" class="muted small"></p>
-      <p class="muted small">
-        Trimming removes the start and end of each track, which is usually your
-        home or a regular parking spot. It reduces obvious exposure; it is not
-        anonymisation, since a trail you ride weekly identifies you on its own.
-      </p>
-      <div class="row"><button id="bk-wipe" class="danger">Erase all runs</button></div>
-    </details>
-
-    <details class="card">
-      <summary data-i18n="settings.title">Settings</summary>
-      <label><span data-i18n="settings.language">Language</span>
-        <select id="lang">
-          <option value="en">English</option>
-          <option value="de">Deutsch</option>
-        </select></label>
-      <p id="datepreview" class="muted small"></p>
-    </details>
-
-    <details class="card">
-      <summary data-i18n="update.title">App version</summary>
-      <p id="ver" class="muted small"></p>
-      <p class="muted small" data-i18n="update.policy"></p>
-      <p id="lastcheck" class="muted small"></p>
-      <div class="row">
-        <button id="update-check" data-i18n="update.check">Check for updates</button>
-      </div>
-      <p id="update-msg" class="muted small"></p>
-    </details>
-
-    <details class="card">
-      <summary data-i18n="uninstall.title">Remove this app</summary>
-      <p class="muted small" data-i18n="uninstall.warn"></p>
-      <p id="storage-msg" class="muted small"></p>
-      <div class="row">
-        <button id="erase-all" class="danger" data-i18n="uninstall.button">Erase everything</button>
-      </div>
-      <p id="erase-msg" class="muted small"></p>
-    </details>
-
-    <details class="card">
-      <summary data-i18n="detect.title">Descent detection</summary>
-      <p class="muted small">
-        GPS altitude is noisy, so these are worth adjusting once you've seen how
-        it behaves on your trails. Grade is metres down per metre along.
-      </p>
-      <label>Start below grade <input id="opt-enter" type="number" step="0.5" value="-3"> %</label>
-      <label>Stop above grade <input id="opt-exit" type="number" step="0.5" value="-0.8"> %</label>
-      <label>Discard runs under <input id="opt-drop" type="number" step="5" min="15" value="30"> m drop</label>
-      <label>Discard runs under <input id="opt-len" type="number" step="10" value="100"> m long</label>
-      <label>Rejoin if descending again within <input id="opt-rejoin" type="number" step="5" value="45"> s</label>
-      <button id="opt-save">Apply</button>
-    </details>
-
+    <ul class="list" id="rideList"></ul>
   </section>
-</main>
+
+  <!-- ============ SETUP ============ -->
+  <section class="screen" id="scSetup">
+    <div class="head"><h2>Setup</h2><span class="sub" id="verSub"></span></div>
+
+    <div class="rows">
+      <div class="row"><span>Motion sensor</span><span class="rv" id="sMotion"></span></div>
+      <div class="row"><span>Readings per second</span><span class="rv" id="sHz"></span></div>
+      <div class="row"><span>Live reading</span><span class="rv" id="sRaw"></span></div>
+      <div class="row"><span>Gyroscope</span><span class="rv" id="sRot"></span></div>
+      <div class="row"><span>Gravity separation</span><span class="rv" id="sLin"></span></div>
+      <div class="row"><span>Permission prompt available</span><span class="rv" id="sPerm"></span></div>
+      <div class="row"><span>Secure connection</span><span class="rv" id="sHttps"></span></div>
+      <div class="row"><span>Launched from home screen</span><span class="rv" id="sStandalone"></span></div>
+      <div class="row"><span>GPS</span><span class="rv" id="sGps"></span></div>
+      <div class="row"><span>Last GPS fix</span><span class="rv" id="sFixAge"></span></div>
+      <div class="row"><span>GPS restarts</span><span class="rv" id="sGpsRe"></span></div>
+      <div class="row"><span>Offline copy installed</span><span class="rv" id="sSw"></span></div>
+      <div class="row"><span>Stored on this phone</span><span class="rv" id="sDisk"></span></div>
+    </div>
+
+    <div class="btnrow">
+      <button class="big go" id="btnAllow">Allow motion access</button>
+      <button class="big" id="btnUpdate">Check for update</button>
+      <button class="big" id="btnRefetch">Re-download the app files</button>
+      <button class="big" id="btnWipe" style="color:var(--red)">Delete all rides</button>
+    </div>
+
+    <div class="tip">
+      <p><b>If the live reading stays empty:</b> the permission was refused at some point and
+      iOS will not ask again, no matter what the Settings toggle says. Reset it with Settings,
+      Safari, Clear History and Website Data, then open the app and tap Allow motion access.</p>
+      <p><b>Updates</b> arrive when the app files on GitHub change. Tap Check for update on
+      wifi. Nothing is downloaded at any other time, and your rides are never touched.</p>
+    </div>
+  </section>
+
+  <nav class="tabs">
+    <button class="tab on" data-go="scRec">Record</button>
+    <button class="tab" data-go="scRides">Rides <span class="badge" id="tabCount"></span></button>
+    <button class="tab" data-go="scSetup">Setup</button>
+  </nav>
+</div>
+
+<!-- ============ DETAIL ============ -->
+<div class="sheet" id="sheet">
+  <div class="sheetbar">
+    <button id="sheetBack">Back</button>
+    <span class="t" id="sheetTitle"></span>
+    <button id="sheetDel" style="color:var(--red)">Delete</button>
+  </div>
+  <div class="sheetbody">
+    <div class="grid" id="sheetGrid"></div>
+
+    <h3 class="plottitle">Movement</h3>
+    <div class="plot"><canvas id="cvAccel"></canvas></div>
+    <p class="plotcap" id="capAccel"></p>
+
+    <h3 class="plottitle">Speed and height</h3>
+    <div class="plot"><canvas id="cvSpeed"></canvas></div>
+    <p class="plotcap" id="capSpeed"></p>
+
+    <h3 class="plottitle">Track</h3>
+    <div class="plot"><canvas id="cvTrack"></canvas></div>
+    <p class="plotcap" id="trackCap"></p>
+
+    <div class="acts">
+      <button class="act" id="detailMapBtn">Aerial map of this run<span class="hint">needs wifi</span></button>
+      <button class="act" data-x="csvsec">Summary CSV, one row per second<span class="hint" id="hSec"></span></button>
+      <button class="act" data-x="csvall">Everything as one CSV<span class="hint" id="hAll"></span></button>
+      <button class="act" data-x="gpx">GPX track<span class="hint">for maps</span></button>
+      <button class="act" data-x="summary">Summary JSON<span class="hint" id="hSum"></span></button>
+      <button class="act" data-x="json">Everything as JSON<span class="hint">raw</span></button>
+    </div>
+  </div>
+</div>
+
+<div class="sheet" id="mapSheet">
+  <div class="sheetbar">
+    <button id="mapBack">Back</button>
+    <span class="t" id="mapTitle"></span>
+    <span style="width:46px"></span>
+  </div>
+  <div class="sheetbody">
+    <div id="mapBox"></div>
+    <p class="plotcap" id="mapCap"></p>
+    <div class="legend" id="mapLegend"></div>
+    <div class="btnrow"><button class="big" id="mapNext">Try the next imagery source</button></div>
+    <div class="tip">
+      <p>Aerial imagery is only fetched when you are online, and only covers
+      Baden-Wuerttemberg. Line thickness is the g force at that point.</p>
+      <p>Imagery: LGL-BW, Datenlizenz Deutschland Namensnennung 2.0, www.lgl-bw.de</p>
+    </div>
+  </div>
+</div>
+
+<div class="sheet" id="cmpSheet">
+  <div class="sheetbar">
+    <button id="cmpBack">Back</button>
+    <span class="t" id="cmpTitle"></span>
+    <span style="width:46px"></span>
+  </div>
+  <div class="sheetbody">
+    <div class="plot"><canvas id="cvCompare"></canvas></div>
+    <p class="plotcap" id="cmpCap"></p>
+    <div class="plot"><canvas id="cvCmpMap"></canvas></div>
+    <p class="plotcap" id="cmpMapCap"></p>
+    <div class="subfacts" id="cmpDiag" style="padding:2px var(--pad) 0;color:var(--dust)"></div>
+    <div class="btnrow"><button class="big" id="cmpMapBtn">Show on the aerial map</button></div>
+    <div class="legend" id="cmpLegend"></div>
+    <div class="rows" id="cmpRows"></div>
+    <div class="tip">
+      <p>Runs are lined up by how far along the trail you were, not by the clock, so a
+      faster run does not simply look shifted. Where two lines rise together you have
+      found the same rough section twice.</p>
+    </div>
+  </div>
+</div>
+
+<div class="sheet" id="daySheet">
+  <div class="sheetbar">
+    <button id="dayBack">Close</button>
+    <span class="t">Send a day of rides</span>
+    <span style="width:46px"></span>
+  </div>
+  <div class="sheetbody">
+    <ul class="list" id="dayList"></ul>
+    <div class="tip">
+      <p>Bundles every ride from one day into a single CSV, one row per second, each row
+      tagged with which ride it came from. A full day is usually well under 100 KB, small
+      enough to copy and paste.</p>
+    </div>
+  </div>
+</div>
+
+<div class="sheet" id="expSheet">
+  <div class="sheetbar">
+    <button id="expBack">Close</button>
+    <span class="t">Save the file</span>
+    <span style="width:46px"></span>
+  </div>
+  <div class="sheetbody">
+    <div class="rows">
+      <div class="row"><span>File</span><span class="rv" id="expName"></span></div>
+      <div class="row"><span>Size</span><span class="rv" id="expSize"></span></div>
+      <div class="row"><span>Automatic save</span><span class="rv no" id="expWhy"></span></div>
+    </div>
+    <div class="btnrow">
+      <button class="big go" id="expCopy">Copy all of it to the clipboard</button>
+      <button class="big" id="expShare">Try Save to Files again</button>
+      <button class="big" id="expShareText">Share it as a message instead</button>
+      <a class="big" id="expDl" download>Download it</a>
+    </div>
+    <div class="tip">
+      <p><b>Copy all of it</b> puts the whole file on the clipboard. Paste it into Notes,
+      save the note, and you have it on the phone for later. For the summary export this is
+      the route that always works.</p>
+      <p><b>Save to Files</b> opens the iOS share sheet, then pick Save to Files and On My
+      iPhone. iOS only shares file types it recognises, so this tries plainer and plainer
+      versions of the same data until one is accepted.</p>
+      <p><b>Share it as a message</b> sends the contents as text rather than a file, which
+      works for the summary but not for a long raw export.</p>
+      <p><b>Download it</b> works in Safari but does nothing when the app is launched from
+      the home screen, because a home screen app has no download manager.</p>
+
+    </div>
+    <textarea id="expText" readonly></textarea>
+  </div>
+</div>
+
+<div id="toast"></div>
 
 <script>
-/*
- * On-screen error reporting.
- *
- * There is no console on an iPhone. Without this, any script that fails to
- * load or throws on startup turns into "I tap the button and nothing happens",
- * which is the least useful bug report there is. This makes the failure
- * visible on the device.
- *
- * Registered before anything else so it can catch failures in the setup code
- * itself.
- */
-(function () {
-  function show(msg) {
-    var bar = document.getElementById('errbar');
-    if (!bar) return;
-    bar.hidden = false;
-    bar.textContent = msg;
-  }
-  window.addEventListener('error', function (e) {
-    if (e.target && e.target.tagName === 'SCRIPT') {
-      show('Could not load ' + (e.target.src || '').split('/').slice(-1)[0] +
-           '. The app cannot run. Open check.html to see which files are missing.');
-    } else if (e.target && e.target.tagName === 'LINK') {
-      show('Stylesheet did not load. Open check.html.');
-    } else {
-      show('Error: ' + e.message + (e.lineno ? ' (line ' + e.lineno + ')' : ''));
-    }
-  }, true);
-  window.addEventListener('unhandledrejection', function (e) {
-    show('Error: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
+"use strict";
+/* =======================================================================
+   Bumplog — accelerometer + GPS logger for mountain bike descents
+   Everything stays on this phone. No network calls after the first load.
+   ======================================================================= */
+
+var G = 9.80665;
+var $ = function (id) { return document.getElementById(id); };
+
+/* ---------------------------------------------------------------- store */
+var DB = null;
+function openDB() {
+  return new Promise(function (res, rej) {
+    var r = indexedDB.open("bumplog", 1);
+    r.onupgradeneeded = function (e) {
+      var db = e.target.result;
+      if (!db.objectStoreNames.contains("rides")) {
+        db.createObjectStore("rides", { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains("accel")) {
+        db.createObjectStore("accel", { keyPath: "k" }).createIndex("ride", "ride");
+      }
+      if (!db.objectStoreNames.contains("gps")) {
+        db.createObjectStore("gps", { keyPath: "k" }).createIndex("ride", "ride");
+      }
+    };
+    r.onsuccess = function () { DB = r.result; res(DB); };
+    r.onerror = function () { rej(r.error); };
   });
-})();
-</script>
-<script src="js/i18n.js"></script>
-<script src="js/setup.js"></script>
-<script src="js/store.js"></script>
-<script src="js/appmanage.js"></script>
-<script src="js/crypto.js"></script>
-<script src="js/analysis.js"></script>
-<script src="js/backup.js"></script>
-<script src="js/descent.js"></script>
-<script src="js/recorder.js"></script>
-<script>
-const { SessionRecorder, WakeLock } = window.Recorder;
-const Store = window.Store;
-const rec = new SessionRecorder();
-const $ = (id) => document.getElementById(id);
-const fmtTime = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
-
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
 }
-
-// Ask the browser to protect this data from eviction, and show how much
-// there is. Home Screen installation is what actually matters; this is extra.
-Store.requestPersistence().then(function (ok) {
-  $('store').textContent = ok ? 'stored on device' : 'local only';
-  $('store').className = 'tag ' + (ok ? 'ok' : '');
-});
-
-/* ---- permission gate ---- */
-
-$('grant').addEventListener('click', function () {
-  // Immediate feedback. If the tap registers but the request fails silently,
-  // this at least proves the handler is alive.
-  $('gate-msg').textContent = '…';
-  if (!isSecureContext) {
-    $('gate-msg').textContent = 'This page must be served over HTTPS.';
-    return;
-  }
-  if (!SessionRecorder.supported()) {
-    $('gate-msg').textContent = 'No DeviceMotion or geolocation in this browser.';
-    return;
-  }
-  SessionRecorder.requestPermission().then(function (state) {
-    $('gate-msg').textContent = 'Motion: ' + state;
-    if (state !== 'granted') {
-      $('gate-msg').textContent =
-        'Denied. Settings → Safari → Motion & Orientation Access, then reload.';
-      return;
-    }
-    // Warm the GPS up now so the cold fix is out of the way before you ride.
-    navigator.geolocation.getCurrentPosition(function () {}, function () {}, 
-      { enableHighAccuracy: true });
-    $('gate').hidden = true;
-    $('app').hidden = false;
-    refreshRuns();
-
-  }).catch(function (e) {
-    $('gate-msg').textContent = 'Request rejected: ' + (e.message || e) +
-      ' — this happens if the page is not https, or the tap was not registered.';
+function tx(names, mode) { return DB.transaction(names, mode); }
+function wrap(req) {
+  return new Promise(function (res, rej) {
+    req.onsuccess = function () { res(req.result); };
+    req.onerror = function () { rej(req.error); };
   });
-});
-
-/* ---- live readout ---- */
-
-rec.addEventListener('tick', function (e) {
-  const d = e.detail;
-  $('vert').textContent = (d.vert >= 0 ? '+' : '') + d.vert.toFixed(2) + ' g';
-  $('peak').textContent = d.peak.toFixed(2);
-  $('rate').textContent = d.rate.toFixed(0);
-  $('elapsed').textContent = fmtTime(d.elapsed);
-  $('runs-count').textContent = d.segments;
-  $('grade').textContent = d.grade === null ? '—' : I18n.num(d.grade * 100, 1);
-
-  if (d.gpsAge === null) {
-    $('gps').textContent = I18n.t('stat.nofix');
-    $('gps').className = 'bad';
-  } else if (d.gpsAge > 10) {
-    $('gps').textContent = I18n.t('stat.stale');
-    $('gps').className = 'warnc';
-  } else {
-    $('gps').textContent = d.fixes + ' ' + I18n.t('stat.fix');
-    $('gps').className = 'goodc';
-  }
-
-  const frac = Math.max(-1, Math.min(1, d.vert / 4));
-  const bar = $('bar');
-  bar.style.height = Math.abs(frac) * 50 + '%';
-  bar.style.top = frac >= 0 ? (50 - Math.abs(frac) * 50) + '%' : '50%';
-  bar.className = 'meter-bar ' +
-    (Math.abs(d.vert) > 3 ? 'hot' : Math.abs(d.vert) > 1.5 ? 'warm' : '');
-
-  setState(d);
-
-  if (d.clipped > 0) {
-    warn('Sensor saturated on ' + d.clipped + ' samples. Peaks there are lower bounds.');
-  } else if (d.rate > 0 && d.rate < 40 && d.samples > 400) {
-    warn('Only ' + d.rate.toFixed(0) + ' Hz — the browser is throttling. Check Low Power Mode.');
-  }
-});
-
-function setState(d) {
-  const el = $('state');
-  if (!rec.active) {
-    el.className = 'state idle';
-    $('state-label').textContent = I18n.t('state.idle');
-    $('state-sub').textContent = I18n.t('state.idle.sub');
-  } else if (d.recording) {
-    el.className = 'state rec';
-    $('state-label').textContent = I18n.t('state.rec');
-    $('state-sub').textContent = I18n.int(d.segmentSamples);
-  } else if (d.paused) {
-    el.className = 'state paused';
-    $('state-label').textContent = I18n.t('state.holding');
-    $('state-sub').textContent = I18n.t('state.holding.sub');
-  } else {
-    el.className = 'state armed';
-    $('state-label').textContent = I18n.t('state.armed');
-    $('state-sub').textContent = I18n.t('state.armed.sub');
-  }
 }
-
-function warn(msg) { $('warn').hidden = false; $('warn').textContent = msg; }
-function log(msg) {
-  $('log').textContent = new Date().toLocaleTimeString().slice(0, 5) + ' · ' + msg;
+function put(store, val) { return wrap(tx([store], "readwrite").objectStore(store).put(val)); }
+function getAll(store) { return wrap(tx([store], "readonly").objectStore(store).getAll()); }
+function byRide(store, id) {
+  return wrap(tx([store], "readonly").objectStore(store).index("ride").getAll(IDBKeyRange.only(id)));
 }
-
-rec.addEventListener('gpserror', function (e) { warn('GPS: ' + e.detail); });
-rec.addEventListener('segmentstart', function (e) {
-  log('descent detected, ' + (e.detail.grade * 100).toFixed(1) + '% grade');
-});
-rec.addEventListener('segmentpaused', function () {
-  log('flattened out — holding in case the trail continues');
-});
-rec.addEventListener('segmentresumed', function () {
-  log('descending again — same run');
-});
-rec.addEventListener('segmentsaved', function (e) {
-  log('saved ' + e.detail.descent.length + ' m, ' + e.detail.descent.drop + ' m drop');
-  refreshRuns();
-});
-rec.addEventListener('discarded', function (e) {
-  log('discarded: ' + e.detail.drop.toFixed(0) + ' m drop over ' +
-      Math.round(e.detail.dist) + ' m — under the 30 m minimum');
-});
-
-/* ---- session control ---- */
-
-$('toggle').addEventListener('click', function () {
-  if (rec.active) {
-    rec.endSession().then(function (saved) {
-      WakeLock.release();
-      window.AppManage.busy = false;
-      $('toggle').textContent = I18n.t('btn.start');
-      $('toggle').classList.remove('recording');
-      $('manual').hidden = true;
-      $('fields').hidden = false;
-      log('session ended, ' + saved.length + ' run(s) kept on this phone');
-      refreshRuns();
-      setState({ recording: false });
+function delRide(id) {
+  return new Promise(function (res, rej) {
+    var t = tx(["rides", "accel", "gps"], "readwrite");
+    t.objectStore("rides").delete(id);
+    ["accel", "gps"].forEach(function (s) {
+      var cur = t.objectStore(s).index("ride").openKeyCursor(IDBKeyRange.only(id));
+      cur.onsuccess = function (e) {
+        var c = e.target.result;
+        if (c) { t.objectStore(s).delete(c.primaryKey); c.continue(); }
+      };
     });
-  } else {
-    readSetupForm();
-    var missing = B.validate(currentSetup);
-    if (missing.length) {
-      $('setupbox').open = true;
-      $('setup-msg').textContent = I18n.t('setup.required');
-      return;
-    }
-    B.saveLast(currentSetup);
-    WakeLock.acquire();
-    rec.startSession({
-      name: $('name').value,
-      notes: currentSetup.note || '',
-      setup: currentSetup,
-    });
-    window.AppManage.busy = true;
-    $('toggle').textContent = I18n.t('btn.end');
-    $('toggle').classList.add('recording');
-    $('manual').hidden = false;
-    $('fields').hidden = true;
-    $('warn').hidden = true;
-    log('session started — climbing will not be logged');
-  }
-});
-
-$('manual').addEventListener('click', function () {
-  const on = rec.toggleManual();
-  $('manual').textContent = I18n.t(on ? 'btn.forceStop' : 'btn.force');
-  $('manual').classList.toggle('recording', on);
-});
-
-$('calibrate').addEventListener('click', function (e) {
-  e.preventDefault();
-  $('cal-msg').textContent = ' hold still…';
-  rec.calibrateSign().then(function (flipped) {
-    $('cal-msg').textContent = flipped === null
-      ? ' no data — enable sensors first'
-      : ' done (sign ' + (flipped ? 'inverted' : 'normal') + ')';
-  });
-});
-
-$('opt-save').addEventListener('click', function () {
-  Object.assign(rec.detector.opts, {
-    enterGrade: parseFloat($('opt-enter').value) / 100,
-    exitGrade: parseFloat($('opt-exit').value) / 100,
-    minDrop: window.Descent.DescentDetector.clampMinDrop($('opt-drop').value),
-    minLength: parseFloat($('opt-len').value),
-    rejoinGap: parseFloat($('opt-rejoin').value),
-  });
-  $('opt-drop').value = rec.detector.opts.minDrop;
-  log('detection thresholds applied');
-});
-
-/* ---- saved runs ---- */
-
-function refreshRuns() {
-  Store.all().then(function (runs) {
-    runs.sort(function (a, b) { return a.startedAt < b.startedAt ? 1 : -1; });
-    const ul = $('runs');
-    ul.innerHTML = '';
-
-    if (!runs.length) {
-      ul.innerHTML = '<li class="muted">' + I18n.t('runs.empty') + '</li>'; return;
-    }
-
-    runs.forEach(function (run) {
-      const s = window.Analysis.summarise(run);
-      const li = document.createElement('li');
-      li.innerHTML =
-        '<div class="run-head"><b>' + escapeHtml(run.name) + '</b></div>' +
-        (run.setup ? '<div class="muted small">' +
-          escapeHtml(window.BikeSetup.summary(run.setup)) + '</div>' : '') +
-        '<div class="muted small">' + I18n.dateTime(run.startedAt) +
-        ' · ' + (run.descent ? run.descent.length + ' m, ' + run.descent.drop + ' m drop' : '') +
-        ' · ' + run.sampleRateHz.toFixed(0) + ' Hz</div>' +
-        '<div class="muted small">RMS ' + s.rms.toFixed(2) + ' m/s² · energy/m ' +
-        s.energyPerMetre.toFixed(2) + ' · peak ' +
-        (s.peak / window.Analysis.G).toFixed(1) + ' g</div>';
-
-      const row = document.createElement('div');
-      row.className = 'row';
-      row.append(
-        mkButton(I18n.t('btn.export'), function () { download(run); }),
-        mkButton(I18n.t('btn.delete'), function () {
-          if (confirm('Delete ' + run.name + '?')) Store.remove(run.id).then(refreshRuns);
-        }, 'danger')
-      );
-      li.append(row);
-      ul.append(li);
-    });
+    t.oncomplete = res; t.onerror = function () { rej(t.error); };
   });
 }
 
-function mkButton(label, fn, cls) {
-  const b = document.createElement('button');
-  b.textContent = label;
-  if (cls) b.className = cls;
-  b.addEventListener('click', fn);
-  return b;
+/* ------------------------------------------------------------- helpers */
+function pad2(n) { return n < 10 ? "0" + n : "" + n; }
+function hms(ms) {
+  var s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  s = s % 60;
+  return h ? h + ":" + pad2(m) + ":" + pad2(s) : m + ":" + pad2(s);
+}
+function haversine(a, b) {
+  var R = 6371000, t = Math.PI / 180;
+  var dLat = (b.lat - a.lat) * t, dLon = (b.lon - a.lon) * t;
+  var q = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(a.lat * t) * Math.cos(b.lat * t) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return 2 * R * Math.atan2(Math.sqrt(q), Math.sqrt(1 - q));
+}
+function dateLabel(ts) {
+  var d = new Date(ts);
+  var days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  var mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return days[d.getDay()] + " " + d.getDate() + " " + mon[d.getMonth()] +
+         ", " + d.getHours() + ":" + pad2(d.getMinutes());
+}
+/* ---------------------------------------------------------------- air
+   Free fall reads near zero g on every axis, so |a| collapsing to almost
+   nothing is the signal. Three guards keep noise out: the dip has to last,
+   it has to be genuinely low on average, and a real landing has to follow.
+   Tune these six numbers if your trail keeps fooling it. */
+var AIR = {
+  ENTER: 0.30,      // g, below this we might be flying
+  EXIT: 0.55,       // g, above this we are back on the ground
+  MIN_MS: 180,      // shorter than this is a jolt, not a jump
+  MAX_MS: 3000,     // longer than this is a sensor glitch
+  MEAN_G: 0.40,     // average g across the dip must stay under this
+  LAND_G: 1.6,      // a landing has to hit at least this hard
+  LAND_MS: 450,     // window to wait for that landing spike
+  GAP_MS: 250       // ignore a new jump this soon after the last one
+};
+/* Fitted to a day of rides on this phone: two street runs came in at 0.18 and 0.28 g,
+   a gravel-ish run at 0.50, and the woodland runs between 0.64 and 0.86. */
+function surfaceOf(rms) {
+  if (rms === null || rms === undefined) return "";
+  if (rms < 0.35) return "smooth, road or hardpack";
+  if (rms < 0.60) return "mixed, gravel or light chatter";
+  return "rough, trail";
 }
 
-// One run, unencrypted, straight to Files. For a full encrypted backup use
-// the Backup panel.
-function download(run) {
-  const blob = new Blob([JSON.stringify(run)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'mtbbump-' + I18n.fileStamp(new Date(run.startedAt)) + '-' +
-               run.id.slice(0, 8) + '.json';
-  a.click();
-  setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
-}
+function airHeight(ms) { return G * Math.pow(ms / 1000, 2) / 8; }
 
-
-
-
-/* ---- bike setup ---- */
-
-var B = window.BikeSetup;
-var currentSetup = B.last();
-
-function fieldRow(f) {
-  var label = '<span>' + I18n.t('setup.' + f.key) + '</span>';
-  var id = 'sf-' + f.key;
-  if (f.type === 'select') {
-    var opts = f.options.map(function (o) {
-      return '<option value="' + o + '">' + I18n.t('setup.mount.' + o) + '</option>';
-    }).join('');
-    return '<label>' + label + '<select id="' + id + '">' + opts + '</select></label>';
-  }
-  if (f.type === 'text') {
-    return '<label>' + label + '<input id="' + id + '" type="text"></label>';
-  }
-  var step = f.type === 'pressure' ? (B.units === 'bar' ? '0.05' : '0.5') : '1';
-  var unit = f.type === 'pressure' ? ' (' + B.units + ')' : '';
-  return '<label><span>' + I18n.t('setup.' + f.key) + unit + '</span>' +
-         '<input id="' + id + '" type="number" step="' + step +
-         '" inputmode="decimal"></label>';
-}
-
-function renderSetup() {
-  ['core', 'fork', 'shock', 'extra'].forEach(function (g) {
-    var el = $('setup-' + g);
-    if (!el) return;
-    el.innerHTML = B.FIELDS.filter(function (f) { return f.group === g; })
-      .map(fieldRow).join('');
-  });
-  $('setup-units').value = B.units;
-  fillSetupForm(currentSetup);
-  renderPresets();
-
-  B.FIELDS.forEach(function (f) {
-    var el = $('sf-' + f.key);
-    if (el) el.addEventListener('change', readSetupForm);
-  });
-}
-
-function fillSetupForm(setup) {
-  B.FIELDS.forEach(function (f) {
-    var el = $('sf-' + f.key);
-    if (!el) return;
-    var v = setup[f.key];
-    if (f.type === 'pressure') {
-      el.value = (v === null || v === undefined) ? ''
-        : Math.round(B.toDisplay(v) * 100) / 100;
-    } else {
-      el.value = (v === null || v === undefined) ? '' : v;
-    }
-  });
-}
-
-function readSetupForm() {
-  var out = {};
-  B.FIELDS.forEach(function (f) {
-    var el = $('sf-' + f.key);
-    if (!el) { out[f.key] = currentSetup[f.key]; return; }
-    if (f.type === 'pressure') out[f.key] = B.fromDisplay(el.value);
-    else if (f.type === 'clicks') out[f.key] = el.value === '' ? null : parseFloat(el.value);
-    else out[f.key] = el.value;
-  });
-  currentSetup = out;
-  return out;
-}
-
-function renderPresets() {
-  var sel = $('setup-preset');
-  var list = B.presets();
-  sel.innerHTML = '<option value="">' + I18n.t('setup.preset') + '…</option>' +
-    list.map(function (p) {
-      return '<option value="' + escapeHtml(p.name) + '">' + escapeHtml(p.name) + '</option>';
-    }).join('');
-}
-
-$('setup-preset').addEventListener('change', function () {
-  var p = B.presets().find(function (x) { return x.name === $('setup-preset').value; });
-  if (!p) return;
-  currentSetup = Object.assign(B.blank(), p.setup);
-  fillSetupForm(currentSetup);
-  $('setup-msg').textContent = p.name;
-});
-
-$('setup-last').addEventListener('click', function () {
-  currentSetup = B.last();
-  fillSetupForm(currentSetup);
-  $('setup-msg').textContent = '';
-});
-
-$('setup-units').addEventListener('change', function () {
-  readSetupForm();
-  B.setUnits($('setup-units').value);
-  renderSetup();
-
-/* ---- mount check ---- */
-
-function showMountHistory() {
-  var h = B.mountHistory(currentSetup);
-  if (!h.length) { $('mount-hist').textContent = ''; return; }
-  var best = Math.min.apply(null, h.map(function (x) { return x.rms; }));
-  $('mount-hist').textContent = I18n.t('mount.baseline') + ': ' +
-    I18n.num(best, 1) + ' mg · ' + h.length + '×';
-}
-showMountHistory();
-
-$('mount-run').addEventListener('click', function () {
-  readSetupForm();
-  $('mount-msg').textContent = I18n.t('mount.running');
-  $('mount-run').disabled = true;
-  rec.mountCheck(10).then(function (r) {
-    $('mount-run').disabled = false;
-    if (!r) { $('mount-msg').textContent = I18n.t('gate.denied'); return; }
-    if (r.moved) { $('mount-msg').textContent = I18n.t('mount.moved'); return; }
-
-    var verdict = B.mountVerdict(currentSetup, r.rms);
-    B.recordMountCheck(currentSetup, r.rms);
-
-    var line = I18n.t('mount.result') + ': ' + I18n.num(r.rms, 1) + ' mg. ';
-    if (verdict.state === 'first') line += I18n.t('mount.first');
-    else if (verdict.state === 'drift') line += I18n.t('mount.drift');
-    else line += I18n.t('mount.good');
-
-    $('mount-msg').textContent = line;
-    $('mount-msg').className = 'small ' +
-      (verdict.state === 'drift' ? 'warn-inline' : 'muted');
-    showMountHistory();
-  });
-});
-});
-
-$('setup-presetsave').addEventListener('click', function () {
-  readSetupForm();
-  try {
-    B.savePreset($('setup-presetname').value, currentSetup);
-    $('setup-presetname').value = '';
-    renderPresets();
-    $('setup-msg').textContent = I18n.t('setup.presetSave');
-  } catch (e) {
-    $('setup-msg').textContent = e.message;
-  }
-});
-
-renderSetup();
-
-/* ---- mount check ---- */
-
-function showMountHistory() {
-  var h = B.mountHistory(currentSetup);
-  if (!h.length) { $('mount-hist').textContent = ''; return; }
-  var best = Math.min.apply(null, h.map(function (x) { return x.rms; }));
-  $('mount-hist').textContent = I18n.t('mount.baseline') + ': ' +
-    I18n.num(best, 1) + ' mg · ' + h.length + '×';
-}
-showMountHistory();
-
-$('mount-run').addEventListener('click', function () {
-  readSetupForm();
-  $('mount-msg').textContent = I18n.t('mount.running');
-  $('mount-run').disabled = true;
-  rec.mountCheck(10).then(function (r) {
-    $('mount-run').disabled = false;
-    if (!r) { $('mount-msg').textContent = I18n.t('gate.denied'); return; }
-    if (r.moved) { $('mount-msg').textContent = I18n.t('mount.moved'); return; }
-
-    var verdict = B.mountVerdict(currentSetup, r.rms);
-    B.recordMountCheck(currentSetup, r.rms);
-
-    var line = I18n.t('mount.result') + ': ' + I18n.num(r.rms, 1) + ' mg. ';
-    if (verdict.state === 'first') line += I18n.t('mount.first');
-    else if (verdict.state === 'drift') line += I18n.t('mount.drift');
-    else line += I18n.t('mount.good');
-
-    $('mount-msg').textContent = line;
-    $('mount-msg').className = 'small ' +
-      (verdict.state === 'drift' ? 'warn-inline' : 'muted');
-    showMountHistory();
-  });
-});
-
-/* ---- backup ---- */
-
-function bkOpts() {
+function makeAirDetector() {
   return {
-    passphrase: $('bk-pass').value,
-    trimMetres: parseInt($('bk-trim').value, 10) || 0,
+    inAir: false, t0: 0, sum: 0, n: 0, minMag: 9,
+    pending: null, lastEnd: -1e9, jumps: [], airMs: 0,
+
+    push: function (t, mag) {
+      if (this.pending) {
+        if (mag > this.pending.peak) this.pending.peak = mag;
+        if (t - this.pending.end > AIR.LAND_MS) {
+          if (this.pending.peak >= AIR.LAND_G) {
+            this.jumps.push({
+              t: Math.round(this.pending.t),
+              dur: Math.round(this.pending.dur),
+              peak: Math.round(this.pending.peak * 100) / 100,
+              min: Math.round(this.pending.min * 100) / 100
+            });
+            this.airMs += this.pending.dur;
+          }
+          this.pending = null;
+        }
+      }
+      if (!this.inAir) {
+        if (mag < AIR.ENTER && t - this.lastEnd > AIR.GAP_MS) {
+          this.inAir = true; this.t0 = t; this.sum = mag; this.n = 1; this.minMag = mag;
+        }
+        return;
+      }
+      this.sum += mag; this.n++;
+      if (mag < this.minMag) this.minMag = mag;
+      if (mag > AIR.EXIT) {
+        var dur = t - this.t0;
+        this.inAir = false; this.lastEnd = t;
+        if (dur >= AIR.MIN_MS && dur <= AIR.MAX_MS && this.sum / this.n < AIR.MEAN_G) {
+          this.pending = { t: this.t0, dur: dur, end: t, peak: mag, min: this.minMag };
+        }
+      } else if (t - this.t0 > AIR.MAX_MS) {
+        this.inAir = false; this.lastEnd = t;
+      }
+    },
+
+    finish: function () {
+      if (this.pending && this.pending.peak >= AIR.LAND_G) {
+        this.jumps.push({
+          t: Math.round(this.pending.t), dur: Math.round(this.pending.dur),
+          peak: Math.round(this.pending.peak * 100) / 100,
+          min: Math.round(this.pending.min * 100) / 100
+        });
+        this.airMs += this.pending.dur;
+      }
+      this.pending = null;
+      return this.jumps;
+    }
   };
 }
 
-$('bk-export').addEventListener('click', function () {
-  const o = bkOpts();
-  if (!o.passphrase || o.passphrase.length < 8) {
-    $('bk-msg').textContent = 'Enter a passphrase of at least 8 characters.';
+var toastTimer = null;
+function toast(msg) {
+  var t = $("toast");
+  t.textContent = msg; t.classList.add("on");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { t.classList.remove("on"); }, 2600);
+}
+function setDot(el, cls, text, label) {
+  el.className = "dot" + (cls ? " " + cls : "");
+  if (label) label.textContent = text;
+}
+
+/* ------------------------------------------------------------ recorder */
+var R = {
+  on: false,
+  id: null, t0: 0, perf0: 0,
+  aT: [], aX: [], aY: [], aZ: [],       // accel with gravity (t in ms since start)
+  aLX: [], aLY: [], aLZ: [],            // linear accel, gravity already removed by iOS
+  aRA: [], aRB: [], aRG: [],            // gyroscope, deg/s
+  gBuf: [],                             // gps buffer
+  aSeq: 0, gSeq: 0,
+  nA: 0, nG: 0,
+  lastFix: null,
+  dist: 0, drop: 0, maxSpd: 0, spd: 0,
+  lastAlt: null, altWin: [],
+  accSum: 0, movePt: null, moveT: 0, preDrop: 0, seeded: false, coarse: 0, fixT: [],
+  ema: 1,                               // smoothed |a| in g, for the high-pass
+  sumSq: 0, nSq: 0, peak: 0,
+  secBucketSq: 0, secBucketN: 0, secIdx: 0, rough: [],
+  vSum: 0, lSum: 0, vlN: 0,
+  movSq: 0, movN: 0,
+  stillRun: 0, pauses: 0, pausedSec: 0,             // vertical and lateral energy, split by gravity
+  maxTurn: 0, turnNow: 0,
+  air: null,
+  gpsDrops: 0,
+  clip: 0, rawPeak: 0,
+  ring: new Float32Array(220), ringI: 0,
+  hzCount: 0, hz: 0, hzT: 0,
+  gaps: 0,
+  flushT: 0
+};
+
+function resetRecorder() {
+  R.aT = []; R.aX = []; R.aY = []; R.aZ = [];
+  R.aLX = []; R.aLY = []; R.aLZ = []; R.aRA = []; R.aRB = []; R.aRG = [];
+  R.gBuf = [];
+  R.aSeq = 0; R.gSeq = 0; R.nA = 0; R.nG = 0;
+  R.lastFix = null; R.dist = 0; R.drop = 0; R.maxSpd = 0; R.spd = 0; R.lastAlt = null; R.altWin = [];
+  R.accSum = 0; R.movePt = null; R.moveT = 0; R.preDrop = 0; R.seeded = false;
+  R.coarse = 0; R.fixT = [];
+  R.ema = 1; R.sumSq = 0; R.nSq = 0; R.peak = 0;
+  R.vSum = 0; R.lSum = 0; R.vlN = 0; R.movSq = 0; R.movN = 0;
+  R.stillRun = 0; R.pauses = 0; R.pausedSec = 0; R.maxTurn = 0; R.turnNow = 0;
+  R.air = makeAirDetector();
+  R.gpsDrops = 0;
+  R.clip = 0; R.rawPeak = 0;
+  R.secBucketSq = 0; R.secBucketN = 0; R.secIdx = 0; R.rough = [];
+  R.ring = new Float32Array(220); R.ringI = 0;
+  R.hzCount = 0; R.hz = 0; R.gaps = 0;
+}
+
+function onMotion(e) {
+  mEvents++;
+  var a = e.accelerationIncludingGravity;
+  if (!a || a.x === null || a.x === undefined) { mEmpty++; return; }
+  if (!motionReady) {
+    motionReady = true;
+    setDot($("dMotion"), "live", "Motion live", $("tMotion"));
+    $("chipMotion").classList.remove("tapme");
+  }
+  lastRaw = { x: a.x, y: a.y, z: a.z };
+  var t = performance.now() - R.perf0;
+  var x = a.x, y = a.y, z = a.z;
+
+  var lin = e.acceleration;
+  var haveLin = !!(lin && lin.x !== null && lin.x !== undefined);
+  if (haveLin) hasLin = true;
+  var rot = e.rotationRate;
+  var haveRot = !!(rot && rot.alpha !== null && rot.alpha !== undefined);
+  if (haveRot) hasRot = true;
+
+  if (R.on) {
+    R.aT.push(Math.round(t)); R.aX.push(x); R.aY.push(y); R.aZ.push(z);
+    R.aLX.push(haveLin ? lin.x : NaN);
+    R.aLY.push(haveLin ? lin.y : NaN);
+    R.aLZ.push(haveLin ? lin.z : NaN);
+    R.aRA.push(haveRot ? rot.alpha : NaN);
+    R.aRB.push(haveRot ? rot.beta : NaN);
+    R.aRG.push(haveRot ? rot.gamma : NaN);
+    R.nA++;
+  }
+  R.hzCount++;
+
+  /* Gravity is what is left when iOS subtracts the linear part. Knowing which way
+     it points lets us split a hit into the bit along the bike's vertical axis and
+     the bit across it, whatever angle the phone sits at in the mount. */
+  if (haveLin) {
+    var gx = x - lin.x, gy = y - lin.y, gz = z - lin.z;
+    var gm = Math.sqrt(gx * gx + gy * gy + gz * gz);
+    if (gm > 1) {
+      var ux = gx / gm, uy = gy / gm, uz = gz / gm;
+      var vert = (lin.x * ux + lin.y * uy + lin.z * uz) / G;
+      var hx = lin.x / G - vert * ux, hy = lin.y / G - vert * uy, hz = lin.z / G - vert * uz;
+      var lat = Math.sqrt(hx * hx + hy * hy + hz * hz);
+      lastSplit = { v: vert, l: lat };
+      if (R.on) { R.vSum += vert * vert; R.lSum += lat * lat; R.vlN++; }
+    }
+  }
+  if (haveRot) {
+    var rm = Math.sqrt(rot.alpha * rot.alpha + rot.beta * rot.beta + rot.gamma * rot.gamma);
+    R.turnNow += (rm - R.turnNow) * 0.15;
+    if (R.on && rm > R.maxTurn) R.maxTurn = rm;
+  }
+
+  // orientation-free roughness: magnitude, high-passed by a slow EMA
+  var mag = Math.sqrt(x * x + y * y + z * z) / G;
+  R.ema += (mag - R.ema) * 0.05;
+  var hp = mag - R.ema;
+
+  R.ring[R.ringI] = hp;
+  R.ringI = (R.ringI + 1) % R.ring.length;
+
+  if (R.on) {
+    if (R.spd > 5) { R.movSq += hp * hp; R.movN++; }
+    if (mag > 9) R.clip++;          // near the sensor ceiling; readings above this lie
+    if (mag > R.rawPeak) R.rawPeak = mag;
+    if (R.air) R.air.push(t, mag);
+    R.sumSq += hp * hp; R.nSq++;
+    var ab = Math.abs(hp); if (ab > R.peak) R.peak = ab;
+    R.secBucketSq += hp * hp; R.secBucketN++;
+    var sec = Math.floor(t / 1000);
+    while (R.secIdx < sec) {
+      R.rough.push(R.secBucketN ? Math.round(Math.sqrt(R.secBucketSq / R.secBucketN) * 1000) / 1000 : 0);
+      R.secBucketSq = 0; R.secBucketN = 0; R.secIdx++;
+    }
+    if (R.aT.length >= 300 || t - R.flushT > 3000) flushAccel();
+  }
+}
+
+function onFix(pos) {
+  var c = pos.coords;
+  lastFixAt = Date.now();
+  gpsErrs = 0;
+  if (gpsRetryT) { clearTimeout(gpsRetryT); gpsRetryT = null; }
+  gpsNote = "fix to " + Math.round(c.accuracy) + " m";
+  setDot($("dGps"), c.accuracy <= 15 ? "live" : "warn",
+    "GPS " + Math.round(c.accuracy) + " m", $("tGps"));
+
+  var p = {
+    t: R.on ? Math.round(performance.now() - R.perf0) : 0,
+    epoch: pos.timestamp,
+    lat: c.latitude, lon: c.longitude,
+    alt: c.altitude === null ? null : c.altitude,
+    acc: c.accuracy,
+    altAcc: c.altitudeAccuracy === null ? null : c.altitudeAccuracy,
+    spd: c.speed === null ? null : c.speed,
+    hdg: c.heading === null ? null : c.heading
+  };
+  R.spd = p.spd !== null && p.spd >= 0 ? p.spd * 3.6 : R.spd;
+
+  /* Stopping mid-trail to shift a rock is a pause, not part of the descent. Track
+     stretches below walking pace so they can be counted and kept out of the numbers. */
+  if (R.on) {
+    if (R.spd < 3) {
+      R.stillRun++;
+    } else {
+      if (R.stillRun >= 5) { R.pauses++; R.pausedSec += R.stillRun; }
+      R.stillRun = 0;
+    }
+  }
+  if (R.spd > R.maxSpd) R.maxSpd = R.spd;
+
+  if (!R.on) { R.lastFix = p; return; }
+
+  /* The watch runs before recording so there is a fix ready when you push off, but
+     that also means the first fix delivered after Start can be one measured minutes
+     earlier, at the trailhead car park or wherever the app was opened. Every fix
+     carries the time it was actually taken, so drop the ones that predate the ride. */
+  if (pos.timestamp && pos.timestamp < R.t0 - 1500) {
+    R.preDrop++;
+    gpsNote = "waiting for a fresh fix";
+    setDot($("dGps"), "warn", "GPS settling", $("tGps"));
     return;
   }
-  $('bk-msg').textContent = 'encrypting… (a few seconds on this phone)';
-  window.Backup.exportAll(o).then(function (r) {
-    $('bk-msg').textContent = r.count + ' run(s) exported, encrypted. ' +
-      'Without the passphrase the file is unreadable — including by you.';
-  }).catch(function (e) { $('bk-msg').textContent = e.message; });
-});
 
-$('bk-plain').addEventListener('click', function () {
-  if (!confirm('Export without encryption?\n\nThe file will contain your GPS ' +
-               'tracks in the clear. Anyone who opens it can see where you rode.')) return;
-  window.Backup.exportAll({ trimMetres: bkOpts().trimMetres }).then(function (r) {
-    $('bk-msg').textContent = r.count + ' run(s) exported unencrypted. ' +
-      'Keep the file somewhere you control.';
-  }).catch(function (e) { $('bk-msg').textContent = e.message; });
-});
+  /* That is not enough on its own: iOS will re-deliver a stale position with a fresh
+     timestamp. A coarse fix is the other tell, since a cached one is wifi derived and
+     accurate to tens of metres. So the first point of a ride has to be a sharp fix.
+     A bad seed poisons both the track shape and the distance total. */
+  /* Coarse fixes used to be thrown away here. They are kept now: they cost almost
+     nothing, and discarding them left no record of what the receiver was doing during
+     a run with no lock. They are excluded from distance, height and the anchor below. */
+  var coarse = c.accuracy > GPS_STORE_ACC;
+  if (coarse) {
+    R.coarse++;
+    gpsNote = "no satellite lock, fix is " + Math.round(c.accuracy / 1000) + " km wide";
+    setDot($("dGps"), "bad", "GPS no lock", $("tGps"));
+  }
 
-$('bk-file').addEventListener('change', function (ev) {
-  const file = ev.target.files && ev.target.files[0];
-  if (!file) return;
-  $('bk-msg').textContent = 'restoring…';
-  window.Backup.importFile(file, $('bk-pass').value).then(function (r) {
-    $('bk-msg').textContent = 'Added ' + r.added + ', skipped ' + r.skipped +
-      ' already present.';
-    refreshRuns();
-  }).catch(function (e) { $('bk-msg').textContent = e.message; });
-  ev.target.value = '';
-});
+  if (!R.seeded) {
+    if (coarse) { R.gBuf.push(p); R.nG++; R.fixT.push(p.t); return; }
+    if (c.accuracy > GPS_SEED_ACC && Date.now() - R.t0 < GPS_SEED_WAIT) {
+      R.preDrop++;
+      gpsNote = "settling, fix still " + Math.round(c.accuracy) + " m";
+      setDot($("dGps"), "warn", "GPS settling", $("tGps"));
+      return;
+    }
+    R.seeded = true;
+    R.lastFix = null;          // nothing before this counts towards distance
+  }
 
-$('bk-wipe').addEventListener('click', function () {
-  if (!confirm('Erase every run on this phone?\n\nThis cannot be undone. ' +
-               'Export a backup first if you want to keep them.')) return;
-  window.Backup.wipeAll().then(function (n) {
-    $('bk-msg').textContent = n + ' run(s) erased.';
-    refreshRuns();
+  R.gBuf.push(p); R.nG++;
+  R.fixT.push(p.t);
+  R.accSum += c.accuracy;
+  /* Indoors iOS hands back a wifi derived position that never changes. Fixes keep
+     arriving so nothing looks broken, but the track is a single point. Notice it. */
+  if (coarse) { R.lastFix = p; return; }
+  if (!R.movePt) { R.movePt = p; R.moveT = Date.now(); }
+  else if (haversine(R.movePt, p) > 5) { R.movePt = p; R.moveT = Date.now(); }
+  if (!coarse && R.lastFix && c.accuracy <= GPS_USE_ACC) {
+    var d = haversine(R.lastFix, p);
+    var dt = Math.max(0.2, (p.t - R.lastFix.t) / 1000);
+    /* Ignore movement smaller than the fix is uncertain, and steps that would need
+       an implausible speed. The floor scales with accuracy so a sharp fix still
+       counts small movements. */
+    if (d > Math.max(1, c.accuracy * 0.15) && d / dt < GPS_MAX_MS) R.dist += d;
+  }
+  /* GPS altitude is noisy enough that a 1.5 m threshold banks the noise as real
+     descent. Take fixes only when the horizontal fix is decent, run a 5 point
+     median, and require 2.5 m of movement before believing it. Window and threshold
+     were fitted against a real run whose true net drop was known. */
+  /* Standing at the top of a trail, GPS altitude wandered 491 -> 464 -> 453 -> 469 -> 443
+     over 64 stationary seconds and the filter banked 34 m of it as descent. Altitude only
+     counts while actually moving. */
+  if (!coarse && R.spd > 5 && p.alt !== null && c.accuracy <= GPS_SEED_ACC &&
+      (p.altAcc === null || p.altAcc === undefined || p.altAcc <= 40)) {
+    R.altWin.push(p.alt);
+    if (R.altWin.length > 3) R.altWin.shift();
+    if (R.altWin.length === 3) {
+      var sorted = R.altWin.slice().sort(function (a, b) { return a - b; });
+      var med = sorted[1];
+      if (R.lastAlt === null) R.lastAlt = med;
+      else {
+        var dh = med - R.lastAlt;
+        if (dh < -2.5) { R.drop += -dh; R.lastAlt = med; }
+        else if (dh > 2.5) { R.lastAlt = med; }
+      }
+    }
+  }
+  R.lastFix = p;
+  if (R.gBuf.length >= 5) flushGps();
+}
+
+function flushAccel() {
+  if (!R.aT.length) return;
+  var rec = {
+    k: R.id + ":" + pad6(R.aSeq++), ride: R.id,
+    t: R.aT, x: R.aX, y: R.aY, z: R.aZ,
+    lx: R.aLX, ly: R.aLY, lz: R.aLZ,
+    ra: R.aRA, rb: R.aRB, rg: R.aRG
+  };
+  R.aT = []; R.aX = []; R.aY = []; R.aZ = [];
+  R.aLX = []; R.aLY = []; R.aLZ = []; R.aRA = []; R.aRB = []; R.aRG = [];
+  R.flushT = performance.now() - R.perf0;
+  put("accel", rec).catch(function () { toast("Storage write failed"); });
+}
+function flushGps() {
+  if (!R.gBuf.length) return;
+  var rec = { k: R.id + ":" + pad6(R.gSeq++), ride: R.id, p: R.gBuf };
+  R.gBuf = [];
+  put("gps", rec).catch(function () {});
+}
+function pad6(n) { return ("00000" + n).slice(-6); }
+
+/* ------------------------------------------------------- sensor access */
+var VERSION = "1.29";
+var motionAttached = false, motionReady = false, motionNote = "starting";
+var mEvents = 0, mEmpty = 0, lastRaw = null, gpsWatch = null, gpsNote = "off";
+var hasLin = false, hasRot = false, lastSplit = null;
+var gpsErrs = 0, gpsRestarts = 0, lastFixAt = 0, gpsRetryT = null,
+    gpsDead = false;
+
+function attachMotion() {
+  if (motionAttached) return;
+  window.addEventListener("devicemotion", onMotion, false);
+  motionAttached = true;
+}
+
+/* Attach on load, then see whether anything actually arrives. iOS only delivers
+   events once permission exists, so silence after a second means we must ask. */
+function probeMotion() {
+  if (!window.DeviceMotionEvent) {
+    motionNote = "not supported by this browser";
+    setDot($("dMotion"), "bad", "No motion sensor", $("tMotion"));
+    return;
+  }
+  attachMotion();
+  setTimeout(function () {
+    if (motionReady) return;
+    if (typeof DeviceMotionEvent.requestPermission === "function") {
+      motionNote = "waiting for permission";
+      setDot($("dMotion"), "warn", "Tap to allow", $("tMotion"));
+      $("chipMotion").classList.add("tapme");
+    } else {
+      motionNote = mEvents ? "events arrive but carry no values" : "sensor silent";
+      setDot($("dMotion"), "warn", "Motion silent", $("tMotion"));
+    }
+  }, 1400);
+}
+
+function askMotion() {
+  attachMotion();
+  if (motionReady) return Promise.resolve(true);
+  var DM = window.DeviceMotionEvent;
+  if (!DM) {
+    motionNote = "not supported by this browser";
+    setDot($("dMotion"), "bad", "No motion sensor", $("tMotion"));
+    return Promise.resolve(false);
+  }
+  if (typeof DM.requestPermission !== "function") {
+    // no prompt on this OS; the listener is on, so just give it a moment
+    return new Promise(function (res) { setTimeout(function () { res(motionReady); }, 900); });
+  }
+  return DM.requestPermission().then(function (s) {
+    if (s === "granted") {
+      attachMotion();
+      motionNote = "permission granted";
+      return new Promise(function (res) { setTimeout(function () { res(true); }, 500); });
+    }
+    motionNote = "permission refused, iOS will not ask again";
+    setDot($("dMotion"), "bad", "Motion blocked", $("tMotion"));
+    return false;
+  }).catch(function (err) {
+    motionNote = "prompt failed: " + (err && err.name ? err.name : err);
+    setDot($("dMotion"), "bad", "Motion blocked", $("tMotion"));
+    return false;
   });
+}
+$("chipGps").onclick = function () {
+  if (gpsDead) { go("scSetup"); toast("Location is refused for this app. Setup explains how."); return; }
+  gpsErrs = 0;
+  restartGps("tap");
+  toast("Looking for a fix");
+};
+$("chipMotion").onclick = function () {
+  askMotion().then(function (ok) {
+    if (!ok) { go("scSetup"); toast("Motion is blocked. Setup explains how to reset it."); }
+  });
+};
+/* watchPosition is fragile on iOS: a timeout under tree cover, a suspended tab, or
+   the screen sleeping between runs can kill the watch for good. The old code marked
+   the dot red and left the handle set, so nothing ever restarted it and GPS stayed
+   dead until the app was reloaded. Now every failure tears the watch down and
+   builds a new one, and a watchdog catches the silent deaths that raise no error. */
+/* No timeout on purpose. watchPosition raises TIMEOUT when no fix has arrived yet,
+   and the old 20 s limit fired constantly in woodland where fixes legitimately
+   arrive one every 10 to 50 s. Each error tore the watch down and started the
+   acquisition again from cold, which is the opposite of what a weak signal needs. */
+var GPS_OPTS = { enableHighAccuracy: true, maximumAge: 2000 };
+
+/* Calibrated against a day of thirteen rides on this phone. iOS reports accuracy in
+   discrete buckets and is pessimistic: a street ride tracked a road cleanly while
+   reporting a flat 65 m. Anything past a few hundred metres is cell tower derived and
+   worthless. The earlier thresholds of 25 and 30 m were fitted to one unusually good
+   run and threw away every fix on the rides that followed. */
+var GPS_STORE_ACC = 300;    // beyond this the fix is a tower, not a position
+var GPS_SEED_ACC = 150;     // good enough to start a track from
+var GPS_SEED_WAIT = 25000;  // but never wait longer than this for one
+var GPS_USE_ACC = 200;      // good enough to measure distance and height with
+var GPS_MAX_MS = 22;        // m/s, a step implying more than this is a glitch
+
+function startGps() {
+  if (!navigator.geolocation) { gpsNote = "no geolocation in this browser"; return; }
+  if (gpsWatch !== null) return;
+  gpsNote = gpsErrs ? "searching, retry " + gpsErrs : "searching";
+  setDot($("dGps"), "warn", "GPS searching", $("tGps"));
+  lastFixAt = Date.now();                 // give the new watch a fresh grace period
+  gpsStartedAt = Date.now();
+  try {
+    gpsWatch = navigator.geolocation.watchPosition(onFix, onGpsErr, GPS_OPTS);
+  } catch (e) {
+    gpsNote = "watch failed: " + (e && e.name ? e.name : e);
+  }
+}
+
+function stopGps() {
+  if (gpsWatch !== null) {
+    try { navigator.geolocation.clearWatch(gpsWatch); } catch (e) { /* already gone */ }
+    gpsWatch = null;
+  }
+  if (gpsRetryT) { clearTimeout(gpsRetryT); gpsRetryT = null; }
+}
+
+function restartGps(why) {
+  if (gpsDead) return;
+  lastRestartAt = Date.now();
+  gpsRestarts++;
+  if (R.on) R.gpsDrops++;
+  gpsNote = "restarting after " + why;
+  stopGps();
+  startGps();
+}
+
+function onGpsErr(err) {
+  if (err && err.code === 1) {            // refused: retrying will not help
+    gpsDead = true;
+    gpsNote = "permission refused";
+    setDot($("dGps"), "bad", "GPS blocked", $("tGps"));
+    stopGps();
+    return;
+  }
+  gpsErrs++;
+  gpsNote = (err && err.code === 3 ? "timed out" : "signal lost") + ", retry " + gpsErrs;
+  setDot($("dGps"), "warn", "GPS lost", $("tGps"));
+  if (gpsRetryT) return;
+  var wait = Math.min(2000 * gpsErrs, 15000);   // back off, but never give up
+  gpsRetryT = setTimeout(function () {
+    gpsRetryT = null;
+    restartGps("error");
+  }, wait);
+}
+
+/* Some failures raise no error at all: fixes simply stop arriving. */
+/* Measured on a real day: one fix a second only happened on the first run, and
+   everything after averaged one every 6 to 55 s. A 15 s watchdog would have been
+   restarting the watch mid-acquisition on most of them. These limits are set well
+   beyond the worst observed gap, and a restart cannot repeat inside 90 s. */
+var GPS_SILENT_RIDE = 60000;
+var GPS_SILENT_IDLE = 150000;
+var GPS_RESTART_GAP = 90000;
+var lastRestartAt = 0;
+
+function gpsWatchdog() {
+  if (gpsDead) return;
+  if (gpsWatch === null) {
+    if (!gpsRetryT) startGps();
+    return;
+  }
+  if (gpsRetryT) return;
+  if (Date.now() - lastRestartAt < GPS_RESTART_GAP) return;
+  var silent = Date.now() - lastFixAt;
+  if (silent > (R.on ? GPS_SILENT_RIDE : GPS_SILENT_IDLE)) { restartGps("silence"); return; }
+  if (!R.on && Date.now() - gpsStartedAt > GPS_REFRESH_MS) restartGps("scheduled refresh");
+}
+
+/* The watch stays on from the moment the app opens. It costs battery, but nothing
+   about the app should require a tap before a run. To stop iOS quietly degrading a
+   long lived watch, it gets rebuilt on a timer whenever no ride is in progress. */
+var GPS_REFRESH_MS = 600000;
+var gpsStartedAt = 0;
+
+
+/* -------------------------------------------------------- start / stop */
+function start() {
+  askMotion().then(function (ok) {
+    if (!ok) { go("scSetup"); toast("No motion readings. Setup shows why."); return; }
+    startGps();
+    resetRecorder();
+    R.id = "r" + Date.now();
+    R.t0 = Date.now();
+    R.perf0 = performance.now();
+    R.flushT = 0;
+    R.on = true;
+    $("btnRec").classList.add("stop");
+    $("recLabel").textContent = "Stop recording";
+    $("clock").classList.remove("idle");
+    $("note").classList.add("hide");
+    put("rides", { id: R.id, startedAt: R.t0, endedAt: null, open: true, rough: [] });
+  });
+}
+
+function stop() {
+  R.on = false;
+  flushAccel(); flushGps();
+  if (R.secBucketN) R.rough.push(Math.round(Math.sqrt(R.secBucketSq / R.secBucketN) * 1000) / 1000);
+  var ride = {
+    id: R.id,
+    startedAt: R.t0,
+    endedAt: Date.now(),
+    open: false,
+    dur: Date.now() - R.t0,
+    nAccel: R.nA,
+    nGps: R.nG,
+    dist: Math.round(R.dist),
+    drop: Math.round(R.drop),
+    maxSpd: Math.round(R.maxSpd * 10) / 10,
+    rms: R.nSq ? Math.round(Math.sqrt(R.sumSq / R.nSq) * 1000) / 1000 : 0,
+    movRms: R.movN ? Math.round(Math.sqrt(R.movSq / R.movN) * 1000) / 1000 : null,
+    movSec: (R.movN && R.nA) ? Math.round(R.movN / R.nA * (Date.now() - R.t0) / 1000) : 0,
+    pauses: R.pauses,
+    pausedSec: R.pausedSec,
+    peak: Math.round(R.peak * 100) / 100,
+    hz: R.nA && R.t0 ? Math.round(R.nA / ((Date.now() - R.t0) / 1000)) : 0,
+    vRms: R.vlN ? Math.round(Math.sqrt(R.vSum / R.vlN) * 1000) / 1000 : null,
+    lRms: R.vlN ? Math.round(Math.sqrt(R.lSum / R.vlN) * 1000) / 1000 : null,
+    maxTurn: R.maxTurn ? Math.round(R.maxTurn) : null,
+    jumps: R.air ? R.air.finish() : [],
+    airMs: R.air ? Math.round(R.air.airMs) : 0,
+    gpsDrops: R.gpsDrops,
+    gpsAcc: R.nG ? Math.round(R.accSum / R.nG * 10) / 10 : null,
+    gpsStuck: (R.nG > 5 && R.moveT && Date.now() - R.moveT > 60000) ? 1 : 0,
+    gpsPreDrop: R.preDrop,
+    gpsCoarse: R.coarse,
+    gpsFirstFix: R.fixT.length ? Math.round(R.fixT[0] / 1000) : null,
+    gpsGapMed: gapStat(R.fixT, "med"),
+    gpsGapMax: gapStat(R.fixT, "max"),
+    clip: R.clip,
+    rawPeak: Math.round(R.rawPeak * 100) / 100,
+    mountRatio: (R.vlN && R.vSum) ? Math.round(Math.sqrt(R.lSum / R.vSum) * 100) / 100 : null,
+    gaps: R.gaps,
+    rough: R.rough
+  };
+  /* Sometimes the recording starts before the ride does. Throw those away rather than
+     filling the list with them. The roughness guard is the safety net: a genuine run with
+     dead GPS reports no distance and no moving time, but it is never this quiet. */
+  var wentNowhere = (ride.dist || 0) < 30 && (ride.movSec || 0) < 5;
+  var nothingHappened = (ride.rms || 0) < 0.15;
+  if (wentNowhere && nothingHappened) {
+    delRide(ride.id).then(function () {
+      $("btnRec").classList.remove("stop");
+      $("recLabel").textContent = "Start recording";
+      $("clock").classList.add("idle");
+      toast("Nothing moved in that " + hms(ride.dur) + ", so it was not kept.");
+      updateStorage();
+    });
+    return;
+  }
+
+  put("rides", ride).then(function () {
+    $("btnRec").classList.remove("stop");
+    $("recLabel").textContent = "Start recording";
+    $("clock").classList.add("idle");
+    if (ride.nGps === 0) {
+      toast("Saved, but no GPS fix arrived at all. Check the GPS chip before the next run.");
+    } else if (ride.gpsStuck || ride.dist === 0) {
+      toast("Saved. GPS never moved throughout, which happens indoors or with no sky view.");
+    } else {
+      toast("Saved " + hms(ride.dur) + " with " + ride.nAccel.toLocaleString() + " samples");
+    }
+    renderRides();
+    go("scRides");
+  });
+}
+
+/* ----------------------------------------------------------- live loop */
+var lastPaint = 0;
+function loop(ts) {
+  requestAnimationFrame(loop);
+
+  if (ts - R.hzT > 1000) { R.hz = R.hzCount; R.hzCount = 0; R.hzT = ts; }
+  if (ts - lastPaint < 100) { drawTrace(); return; }
+  lastPaint = ts;
+  gpsWatchdog();
+
+  if (R.on) $("clock").textContent = hms(Date.now() - R.t0);
+  $("mDist").textContent = (R.dist / 1000).toFixed(2);
+  $("mSpeed").textContent = Math.round(R.spd);
+  $("mDrop").textContent = Math.round(R.drop);
+  $("fRms").textContent = (R.nSq ? Math.sqrt(R.sumSq / R.nSq) : 0).toFixed(2);
+  $("fHz").textContent = R.hz;
+  $("fSamp").textContent = R.nA.toLocaleString();
+  $("fFix").textContent = R.nG;
+  $("fTurn").textContent = Math.round(R.turnNow);
+  $("fAir").textContent = R.air ? R.air.jumps.length : 0;
+  $("tracePeak").textContent = R.peak ? "peak " + R.peak.toFixed(2) + " g" : "";
+  drawTrace();
+}
+
+/* ------------------------------------------------------------- drawing */
+function fitCanvas(cv, cssH) {
+  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var w = cv.clientWidth || cv.parentNode.clientWidth;
+  var h = cssH || cv.clientHeight || cv.parentNode.clientHeight;
+  if (cv._w !== w || cv._h !== h) {
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    cv.style.height = h + "px";
+    cv._w = w; cv._h = h; cv._dpr = dpr;
+  }
+  if (!w || !h) return null;
+  var c = cv.getContext("2d");
+  c.setTransform(cv._dpr, 0, 0, cv._dpr, 0, 0);
+  return { c: c, w: w, h: h };
+}
+
+function drawTrace() {
+  var f = fitCanvas($("cvTrace"));
+  if (!f) return;
+  var c = f.c, w = f.w, h = f.h, mid = h / 2;
+  c.clearRect(0, 0, w, h);
+
+  c.strokeStyle = "#2E2720"; c.lineWidth = 1;
+  c.beginPath(); c.moveTo(0, mid + .5); c.lineTo(w, mid + .5); c.stroke();
+
+  var n = R.ring.length, step = w / n, scale = mid / 1.6;
+  c.strokeStyle = motionReady ? "#F4671F" : "#3A3129";
+  c.lineWidth = 1.5;
+  c.beginPath();
+  for (var i = 0; i < n; i++) {
+    var v = R.ring[(R.ringI + i) % n];
+    var y = mid - Math.max(-1.55, Math.min(1.55, v)) * scale;
+    var x = i * step;
+    if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+  }
+  c.stroke();
+
+  if (R.on && R.air && R.air.inAir) {
+    c.fillStyle = "#E8C25A"; c.font = "600 13px -apple-system,sans-serif";
+    c.fillText("air", 8, 18);
+  }
+
+  if (!motionReady) {
+    c.fillStyle = "#998C79"; c.font = "13px -apple-system,sans-serif";
+    c.textAlign = "center";
+    c.fillText(motionNote === "waiting for permission"
+      ? "Tap the motion chip above to allow" : "Waiting for the motion sensor", w / 2, mid - 10);
+    c.textAlign = "left";
+  }
+}
+
+function drawSpark(cv, rough) {
+  var f = fitCanvas(cv, 30);
+  if (!f) return;
+  var c = f.c, w = f.w, h = f.h;
+  c.clearRect(0, 0, w, h);
+  if (!rough || !rough.length) return;
+  var max = 0, i;
+  for (i = 0; i < rough.length; i++) if (rough[i] > max) max = rough[i];
+  if (max <= 0) max = 1;
+  c.fillStyle = "#F4671F";
+  var bw = Math.max(1, w / rough.length);
+  for (i = 0; i < rough.length; i++) {
+    var x = (i / rough.length) * w;
+    var bh = Math.max(1, (rough[i] / max) * (h - 2));
+    c.fillRect(x, h - bh, bw * 0.85, bh);
+  }
+}
+
+function emptyPlot(c, w, h, msg) {
+  c.fillStyle = "#998C79"; c.font = "13px -apple-system,sans-serif";
+  c.textAlign = "center"; c.fillText(msg, w / 2, h / 2); c.textAlign = "left";
+}
+function clearPlot(id, h) {
+  var f = fitCanvas($(id), h);
+  if (!f) return;
+  f.c.clearRect(0, 0, f.w, f.h);
+  f.c.fillStyle = "#998C79"; f.c.font = "13px -apple-system,sans-serif";
+  f.c.textAlign = "center"; f.c.fillText("Reading samples", f.w / 2, f.h / 2); f.c.textAlign = "left";
+}
+
+/* Walk every stored sample once and reduce it to what the plots need:
+   a min/max envelope with one slot per screen column, plus per-second RMS. */
+function buildEnvelope(chunks, dur, cols) {
+  var mn = new Float32Array(cols), mx = new Float32Array(cols), has = new Uint8Array(cols);
+  var ema = 1, peak = 0, n = 0;
+  var rough = [], secSq = 0, secN = 0, secIdx = 0;
+  var air = makeAirDetector();
+  chunks.forEach(function (ch) {
+    for (var i = 0; i < ch.t.length; i++) {
+      var t = ch.t[i];
+      var mag = Math.sqrt(ch.x[i] * ch.x[i] + ch.y[i] * ch.y[i] + ch.z[i] * ch.z[i]) / G;
+      ema += (mag - ema) * 0.05;
+      var hp = mag - ema;
+      air.push(t, mag);
+      n++;
+      var col = Math.floor(t / dur * cols);
+      if (col < 0) col = 0; if (col > cols - 1) col = cols - 1;
+      if (!has[col]) { mn[col] = hp; mx[col] = hp; has[col] = 1; }
+      else { if (hp < mn[col]) mn[col] = hp; if (hp > mx[col]) mx[col] = hp; }
+      var ab = hp < 0 ? -hp : hp; if (ab > peak) peak = ab;
+      secSq += hp * hp; secN++;
+      var sec = Math.floor(t / 1000);
+      while (secIdx < sec) {
+        rough.push(secN ? Math.sqrt(secSq / secN) : 0);
+        secSq = 0; secN = 0; secIdx++;
+      }
+    }
+  });
+  if (secN) rough.push(Math.sqrt(secSq / secN));
+  air.finish();
+  return { mn: mn, mx: mx, has: has, cols: cols, peak: peak, rough: rough, n: n,
+           jumps: air.jumps, airMs: air.airMs };
+}
+
+/* Movement: pale band is every reading, solid core is the typical energy per second. */
+function drawAccel(env, rough, dur, jumps) {
+  var f = fitCanvas($("cvAccel"), 150);
+  if (!f) return;
+  var c = f.c, w = f.w, h = f.h, mid = h / 2, pad = 14;
+  c.clearRect(0, 0, w, h);
+  if (!env || !env.n) { emptyPlot(c, w, h, "No accelerometer samples stored"); return; }
+
+  var scale = (mid - pad) / (env.peak || 1);
+  var colW = w / env.cols, i;
+
+  c.fillStyle = "#6A5A4E";
+  for (i = 0; i < env.cols; i++) {
+    if (!env.has[i]) continue;
+    var y0 = mid - env.mx[i] * scale, y1 = mid - env.mn[i] * scale;
+    c.fillRect(i * colW, y0, Math.max(1, colW + 0.5), Math.max(1, y1 - y0));
+  }
+
+  // typical energy per second, mirrored around zero, as a pair of edges
+  if (rough && rough.length > 1) {
+    c.strokeStyle = "#F4671F"; c.lineWidth = 1.6; c.lineJoin = "round";
+    var sgn;
+    for (sgn = -1; sgn <= 1; sgn += 2) {
+      c.beginPath();
+      for (i = 0; i < rough.length; i++) {
+        var x = (i * 1000 / dur) * w + (500 / dur) * w;
+        var y = mid - sgn * rough[i] * scale;
+        if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+      }
+      c.stroke();
+    }
+  }
+
+  if (jumps && jumps.length) {
+    c.fillStyle = "#E8C25A";
+    for (i = 0; i < jumps.length; i++) {
+      var jx = (jumps[i].t / dur) * w;
+      var jw = Math.max(2.5, (jumps[i].dur / dur) * w);
+      c.fillRect(jx, 0, jw, 4);
+    }
+  }
+
+  c.strokeStyle = "#4A4038"; c.lineWidth = 1;
+  c.beginPath(); c.moveTo(0, mid + .5); c.lineTo(w, mid + .5); c.stroke();
+  c.fillStyle = "#998C79"; c.font = "11px -apple-system,sans-serif";
+  c.fillText("+" + env.peak.toFixed(1) + " g", 5, 13);
+  c.fillText("-" + env.peak.toFixed(1) + " g", 5, h - 5);
+}
+
+/* Speed as a line, height as a filled area behind it. */
+function drawSpeedAlt(pts, dur) {
+  var f = fitCanvas($("cvSpeed"), 150);
+  if (!f) return;
+  var c = f.c, w = f.w, h = f.h, pad = 14, i;
+  c.clearRect(0, 0, w, h);
+  if (!pts || pts.length < 2) { emptyPlot(c, w, h, "No GPS fixes in this ride"); return; }
+
+  var xOf = function (p) { return (p.t / dur) * w; };
+  var alts = [], maxSpd = 0;
+  for (i = 0; i < pts.length; i++) {
+    if (pts[i].alt !== null && pts[i].alt !== undefined) alts.push(pts[i].alt);
+    var sp = pts[i].spd;
+    if (sp !== null && sp >= 0 && sp * 3.6 > maxSpd) maxSpd = sp * 3.6;
+  }
+
+  if (alts.length > 1) {
+    var lo = Math.min.apply(null, alts), hi = Math.max.apply(null, alts);
+    var span = Math.max(hi - lo, 5);
+    var altY = function (p) {
+      return h - pad * 0.5 - ((p.alt - lo) / span) * (h - pad * 1.8);
+    };
+    c.fillStyle = "#352D25";
+    c.beginPath(); c.moveTo(0, h);
+    for (i = 0; i < pts.length; i++) {
+      if (pts[i].alt === null || pts[i].alt === undefined) continue;
+      c.lineTo(xOf(pts[i]), altY(pts[i]));
+    }
+    c.lineTo(w, h); c.closePath(); c.fill();
+    c.strokeStyle = "#7A6E5E"; c.lineWidth = 1; c.beginPath();
+    var st = false;
+    for (i = 0; i < pts.length; i++) {
+      if (pts[i].alt === null || pts[i].alt === undefined) continue;
+      if (!st) { c.moveTo(xOf(pts[i]), altY(pts[i])); st = true; }
+      else c.lineTo(xOf(pts[i]), altY(pts[i]));
+    }
+    c.stroke();
+    c.fillStyle = "#998C79"; c.font = "11px -apple-system,sans-serif";
+    c.fillText(Math.round(hi) + " down to " + Math.round(lo) + " m", 5, h - 5);
+  }
+
+  if (maxSpd > 0) {
+    c.strokeStyle = "#F4671F"; c.lineWidth = 2; c.lineJoin = "round";
+    c.beginPath();
+    var started = false;
+    for (i = 0; i < pts.length; i++) {
+      var s = pts[i].spd;
+      if (s === null || s < 0) continue;
+      var y = h - pad - (s * 3.6 / maxSpd) * (h - pad * 2);
+      if (!started) { c.moveTo(xOf(pts[i]), y); started = true; } else c.lineTo(xOf(pts[i]), y);
+    }
+    c.stroke();
+    c.fillStyle = "#F4671F"; c.font = "11px -apple-system,sans-serif";
+    c.textAlign = "right";
+    c.fillText(maxSpd.toFixed(0) + " km/h top", w - 5, 13);
+    c.textAlign = "left";
+  }
+}
+
+function roughColor(u) {
+  var a = [138, 127, 110], b = [244, 103, 31];
+  if (u < 0) u = 0; if (u > 1) u = 1;
+  return "rgb(" + Math.round(a[0] + (b[0] - a[0]) * u) + "," +
+                  Math.round(a[1] + (b[1] - a[1]) * u) + "," +
+                  Math.round(a[2] + (b[2] - a[2]) * u) + ")";
+}
+
+/* Track shape, each segment coloured by how rough that moment was. */
+function drawTrack(pts, rough, jumps) {
+  var f = fitCanvas($("cvTrack"), 200);
+  if (!f) return;
+  var c = f.c, w = f.w, h = f.h, i;
+  c.clearRect(0, 0, w, h);
+  if (!pts || pts.length < 2) { emptyPlot(c, w, h, "No GPS fixes in this ride"); return; }
+
+  var minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+  for (i = 0; i < pts.length; i++) {
+    if (pts[i].lat < minLat) minLat = pts[i].lat;
+    if (pts[i].lat > maxLat) maxLat = pts[i].lat;
+    if (pts[i].lon < minLon) minLon = pts[i].lon;
+    if (pts[i].lon > maxLon) maxLon = pts[i].lon;
+  }
+  var kx = Math.cos(((minLat + maxLat) / 2) * Math.PI / 180);
+  var dLat = Math.max(maxLat - minLat, 1e-6);
+  var dLon = Math.max((maxLon - minLon) * kx, 1e-6);
+  var pad = 22;
+  var s = Math.min((w - pad * 2) / dLon, (h - pad * 2) / dLat);
+  var ox = (w - dLon * s) / 2, oy = (h - dLat * s) / 2;
+  function px(p) { return ox + (p.lon - minLon) * kx * s; }
+  function py(p) { return h - (oy + (p.lat - minLat) * s); }
+
+  var rmax = 0;
+  if (rough) for (i = 0; i < rough.length; i++) if (rough[i] > rmax) rmax = rough[i];
+
+  c.lineWidth = 3.5; c.lineJoin = "round"; c.lineCap = "round";
+  for (i = 1; i < pts.length; i++) {
+    var u = 0;
+    if (rmax > 0 && rough) {
+      var sec = Math.floor(pts[i].t / 1000);
+      if (sec >= 0 && sec < rough.length) u = rough[sec] / rmax;
+    }
+    c.strokeStyle = rmax > 0 ? roughColor(u) : "#F4671F";
+    c.beginPath();
+    c.moveTo(px(pts[i - 1]), py(pts[i - 1]));
+    c.lineTo(px(pts[i]), py(pts[i]));
+    c.stroke();
+  }
+  if (jumps && jumps.length) {
+    c.fillStyle = "#E8C25A";
+    for (var j = 0; j < jumps.length; j++) {
+      var mid = jumps[j].t + jumps[j].dur / 2, best = null, bd = 1e12;
+      for (i = 0; i < pts.length; i++) {
+        var d2 = Math.abs(pts[i].t - mid);
+        if (d2 < bd) { bd = d2; best = pts[i]; }
+      }
+      if (best && bd < 4000) {
+        c.beginPath(); c.arc(px(best), py(best), 4, 0, 6.2832); c.fill();
+      }
+    }
+  }
+
+  c.fillStyle = "#7BC28C";
+  c.beginPath(); c.arc(px(pts[0]), py(pts[0]), 5, 0, 6.2832); c.fill();
+  c.fillStyle = "#F0E7D7";
+  c.beginPath(); c.arc(px(pts[pts.length - 1]), py(pts[pts.length - 1]), 5, 0, 6.2832); c.fill();
+}
+
+/* ----------------------------------------------------------- rides list */
+var rides = [], editMode = false;
+
+function confirmDelete(r) {
+  if (!confirm("Delete the ride from " + dateLabel(r.startedAt) + "?\n\n" +
+      (r.nAccel || 0).toLocaleString() + " samples will be erased for good.")) return;
+  delRide(r.id).then(function () {
+    if (openR && openR.id === r.id) { $("sheet").classList.remove("on"); openR = null; }
+    renderRides();
+    updateStorage();
+    toast("Ride deleted");
+  });
+}
+
+function deleteAllRides() {
+  if (!rides.length) { toast("There are no rides to delete"); return; }
+  if (!confirm("Delete all " + rides.length + " rides?\n\nEverything recorded on this phone " +
+      "will be erased. Export anything you want to keep first.")) return;
+  if (!confirm("Last check. This cannot be undone.")) return;
+  Promise.all(rides.map(function (r) { return delRide(r.id); })).then(function () {
+    renderRides();
+    updateStorage();
+    toast("All rides deleted");
+  });
+}
+
+$("btnEdit").onclick = function () {
+  editMode = !editMode;
+  $("rideList").classList.toggle("editing", editMode);
+  $("btnEdit").textContent = editMode ? "Done" : "Edit";
+};
+$("btnWipe").onclick = deleteAllRides;
+
+
+/* Rides are grouped first by the day they happened on, numbered as sessions in the
+   order they occurred, then within a session by how good the GPS was. Two runs are
+   only fairly comparable if they were measured to a similar standard, so putting
+   them side by side makes the comparison honest. */
+function accBand(r) {
+  if (!r.nGps || r.gpsAcc === null || r.gpsAcc === undefined) {
+    return { k: 3, label: "No satellite lock", note: "position unusable" };
+  }
+  if (r.gpsAcc <= 30) return { k: 0, label: "Sharp fix", note: "under 30 m" };
+  if (r.gpsAcc <= 80) return { k: 1, label: "Good fix", note: "30 to 80 m" };
+  if (r.gpsAcc <= 200) return { k: 2, label: "Loose fix", note: "80 to 200 m" };
+  return { k: 3, label: "No satellite lock", note: "position unusable" };
+}
+
+/* A session is a calendar day, a trail is a place, a run is one descent of it. Two
+   runs belong to the same trail if their anchors sit within the radius. The anchor is
+   the median of a run's usable fixes rather than the mean, so one stray tower fix
+   cannot drag it across the valley.
+
+   The anchor is where the run STARTED, not the middle of it. Checked against ten real
+   runs: runs of the same trail began 2 to 15 m apart, while the nearest different trail
+   started 388 m away, so the grouping is identical anywhere between 50 and 250 m. Using
+   the midpoint instead was much worse, because a short run and a long run down the same
+   trail have midpoints hundreds of metres apart. */
+var TRAIL_RADIUS = 100;
+
+/* Gaps between fixes, in seconds. The median says what the receiver managed on
+   average, the worst gap says whether it stalled. */
+function gapStat(times, which) {
+  if (!times || times.length < 2) return null;
+  var g = [], i;
+  for (i = 1; i < times.length; i++) g.push((times[i] - times[i - 1]) / 1000);
+  if (which === "max") return Math.round(Math.max.apply(null, g) * 10) / 10;
+  return Math.round(median(g) * 10) / 10;
+}
+
+function median(a) {
+  var v = a.slice().sort(function (x, y) { return x - y; });
+  return v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
+}
+
+/* Older rides predate these fields, so work them out once and keep them. */
+function ensureGeo(list) {
+  var need = list.filter(function (r) { return r.geoDone !== 2; });
+  if (!need.length) return Promise.resolve();
+  return Promise.all(need.map(function (r) {
+    return byRide("gps", r.id).then(function (chunks) {
+      var n = 0, sum = 0, first = null, best = null;
+      chunks.sort(bySeq).forEach(function (ch) {
+        (ch.p || []).forEach(function (pt) {
+          if (pt.acc === null || pt.acc === undefined) return;
+          sum += pt.acc; n++;
+          if (pt.acc <= GPS_USE_ACC) {
+            if (!first) first = pt;
+            if (!best || pt.acc < best.acc) best = pt;
+          }
+        });
+      });
+      var seed = first || best;
+      r.gpsAcc = n ? Math.round(sum / n * 10) / 10 : null;
+      if (!r.nGps) r.nGps = n;
+      if (seed) {
+        r.anchorLat = seed.lat; r.anchorLon = seed.lon; r.anchorN = n;
+      } else {
+        r.anchorLat = null; r.anchorLon = null; r.anchorN = 0;
+      }
+      r.geoDone = 2;
+      return put("rides", r);
+    }).catch(function () { r.geoDone = 2; });
+  }));
+}
+
+function hasAnchor(r) { return r.anchorLat !== null && r.anchorLat !== undefined; }
+
+/* Single linkage: a run joins a trail if it is within the radius of any run already in
+   it, which lets a trail stretch along a valley without swallowing the next one. */
+function clusterByPlace(list) {
+  var trails = [], unplaced = [];
+  list.forEach(function (r) {
+    if (!hasAnchor(r)) { unplaced.push(r); return; }
+    var me = { lat: r.anchorLat, lon: r.anchorLon }, hit = null, i, j;
+    for (i = 0; i < trails.length && !hit; i++) {
+      for (j = 0; j < trails[i].length; j++) {
+        var o = trails[i][j];
+        if (haversine(me, { lat: o.anchorLat, lon: o.anchorLon }) <= TRAIL_RADIUS) {
+          hit = trails[i]; break;
+        }
+      }
+    }
+    if (hit) hit.push(r); else trails.push([r]);
+  });
+  return { trails: trails, unplaced: unplaced };
+}
+
+function sessionNumbers() {
+  var days = {}, keys = [];
+  rides.forEach(function (r) {
+    var k = dayKey(r.startedAt);
+    if (!days[k]) { days[k] = true; keys.push(k); }
+  });
+  keys.sort();                                  // oldest day becomes session 1
+  var map = {};
+  keys.forEach(function (k, i) { map[k] = i + 1; });
+  return map;
+}
+
+function rideRow(r, ul, tag) {
+  var li = document.createElement("li");
+  var b = document.createElement("button");
+  b.className = "ride";
+  b.innerHTML = '<span><span class="when"></span><span class="facts"></span></span><canvas></canvas>';
+  b.querySelector(".when").textContent =
+    (tag ? tag + "  " : "") + (dateLabel(r.startedAt).split(", ")[1] || dateLabel(r.startedAt));
+  b.querySelector(".facts").innerHTML =
+    hms((r.movSec ? r.movSec * 1000 : r.dur) || 0) + "<i>|</i>" +
+    ((r.dist || 0) / 1000).toFixed(2) + " km<i>|</i>" +
+    (r.drop || 0) + " m down<i>|</i>" +
+    (r.movRms || r.rms || 0).toFixed(2) + " g";
+  b.onclick = function () { openRide(r); };
+  li.appendChild(b);
+  var dbtn = document.createElement("button");
+  dbtn.className = "del";
+  dbtn.textContent = "Delete";
+  dbtn.onclick = function () { confirmDelete(r); };
+  li.appendChild(dbtn);
+  ul.appendChild(li);
+  drawSpark(b.querySelector("canvas"), r.rough);
+}
+
+function renderRides() {
+  return getAll("rides").then(function (rows) {
+    rides = rows.filter(function (r) { return !r.open; })
+                .sort(function (a, b) { return b.startedAt - a.startedAt; });
+    return ensureGeo(rides);
+  }).then(function () {
+    var ul = $("rideList");
+    ul.innerHTML = "";
+    $("tabCount").textContent = rides.length ? rides.length : "";
+    if (!rides.length) {
+      ul.innerHTML = '<li class="empty"><b>Nothing recorded yet</b>' +
+        'Mount the phone, hit start at the top of the trail, hit stop at the bottom. ' +
+        'Each run lands here with its raw samples ready to export.</li>';
+      $("ridesSub").textContent = "";
+      return;
+    }
+
+    var sess = sessionNumbers();
+    var byDay = {}, dayOrder = [];
+    rides.forEach(function (r) {
+      var k = dayKey(r.startedAt);
+      if (!byDay[k]) { byDay[k] = []; dayOrder.push(k); }
+      byDay[k].push(r);
+    });
+
+    var totS = 0, totD = 0;
+    rides.forEach(function (r) { totS += r.nAccel || 0; totD += r.dist || 0; });
+
+    dayOrder.forEach(function (k) {
+      var group = byDay[k];
+      var head = document.createElement("li");
+      head.className = "sect";
+      head.innerHTML = "Session " + sess[k] +
+        '<span>' + dateLabel(group[0].startedAt).split(",")[0] + ", " +
+        group.length + (group.length === 1 ? " ride" : " rides") + "</span>";
+      ul.appendChild(head);
+
+      var asc = group.slice().sort(function (a, b) { return a.startedAt - b.startedAt; });
+      /* Run numbers run 1..N across the whole session in the order they were ridden,
+         not 1..n within each trail, so "run 7" means the same thing everywhere. */
+      var runNo = {};
+      asc.forEach(function (r, i) { runNo[r.id] = i + 1; });
+      var res = clusterByPlace(asc);
+
+      res.trails.forEach(function (runs, idx) {
+        var rms = 0, n2 = 0;
+        runs.forEach(function (r) { rms += r.movRms || r.rms || 0; n2++; });
+        var sub = document.createElement("li");
+        sub.className = "sub";
+        var top = document.createElement("div");
+        top.className = "subtop";
+        top.innerHTML = '<span class="subname">Trail ' + (idx + 1) + "</span>";
+        if (runs.length > 1) {
+          var cmp = document.createElement("button");
+          cmp.textContent = "Compare " + runs.length + " runs";
+          cmp.onclick = function () {
+            openCompare(runs, runs.length + " runs on trail " + (idx + 1), runNo);
+          };
+          top.appendChild(cmp);
+        }
+        sub.appendChild(top);
+        var facts = document.createElement("div");
+        facts.className = "subfacts";
+        facts.textContent = runs.length + (runs.length === 1 ? " run" : " runs") +
+          ", mean " + (rms / n2).toFixed(2) + " g, from " +
+          runs[0].anchorLat.toFixed(4) + " " + runs[0].anchorLon.toFixed(4);
+        sub.appendChild(facts);
+        ul.appendChild(sub);
+        runs.forEach(function (r) { rideRow(r, ul, "Run " + runNo[r.id]); });
+      });
+
+      if (res.unplaced.length) {
+        var rmsU = 0;
+        res.unplaced.forEach(function (r) { rmsU += r.rms || 0; });
+        var subU = document.createElement("li");
+        subU.className = "sub";
+        subU.innerHTML = "<span>Location unknown</span><span>" + res.unplaced.length +
+          (res.unplaced.length === 1 ? " run" : " runs") + ", mean <b>" +
+          (rmsU / res.unplaced.length).toFixed(2) + " g</b></span>";
+        ul.appendChild(subU);
+        res.unplaced.forEach(function (r) { rideRow(r, ul, "Run " + runNo[r.id]); });
+      }
+    });
+
+    $("ridesSub").textContent = (totD / 1000).toFixed(1) + " km, " +
+      (totS / 1000).toFixed(0) + "k samples";
+  });
+}
+
+/* ------------------------------------------------------ comparing runs */
+var CMP_COLORS = ["#F4671F", "#E8C25A", "#7BC28C", "#F0E7D7", "#9A8D7A", "#DC4A3D"];
+
+/* Two runs of the same trail only line up if you plot against distance travelled.
+   Against time, the faster run is squashed and the rough sections never coincide. */
+function buildCompareSeries(r, chunks) {
+  var pts = [];
+  chunks.sort(bySeq).forEach(function (ch) { pts = pts.concat(ch.p || []); });
+  pts.sort(function (a, b) { return a.t - b.t; });
+  var rough = r.rough || [], out = [], d = 0, last = null, gi = 0, sec;
+  for (sec = 0; sec < rough.length; sec++) {
+    var t = sec * 1000;
+    while (gi < pts.length && pts[gi].t <= t + 500) {
+      var q = pts[gi++];
+      if (q.acc === null || q.acc === undefined || q.acc <= GPS_USE_ACC) {
+        if (last) {
+          var step = haversine(last, q);
+          if (step > 0.5 && step < 200) d += step;
+        }
+        last = q;
+      }
+    }
+    out.push({ d: d, r: rough[sec], lat: last ? last.lat : null, lon: last ? last.lon : null });
+  }
+  return out;
+}
+
+/* Smooths the roughness only. It used to rebuild each point as {d, r} and drop the
+   coordinates, which left every lat as undefined. undefined is not null, so the
+   guards below let it through and both the overlay and the map were handed NaN. */
+function smooth3(vals) {
+  var out = [], i;
+  for (i = 0; i < vals.length; i++) {
+    var a = vals[Math.max(0, i - 1)].r, b = vals[i].r, c = vals[Math.min(vals.length - 1, i + 1)].r;
+    out.push({
+      d: vals[i].d, r: (a + b + c) / 3,
+      lat: vals[i].lat, lon: vals[i].lon
+    });
+  }
+  return out;
+}
+
+function hasFix(p) {
+  return p && p.lat !== null && p.lat !== undefined &&
+         p.lon !== null && p.lon !== undefined &&
+         !isNaN(p.lat) && !isNaN(p.lon);
+}
+
+function drawCompare(series, byDistance) {
+  var f = fitCanvas($("cvCompare"), 200);
+  if (!f) return;
+  var c = f.c, w = f.w, h = f.h, pad = 16, i, j;
+  c.clearRect(0, 0, w, h);
+  var maxX = 0, maxY = 0;
+  series.forEach(function (s2) {
+    s2.pts.forEach(function (p, k) {
+      var x = byDistance ? p.d : k;
+      if (x > maxX) maxX = x;
+      if (p.r > maxY) maxY = p.r;
+    });
+  });
+  if (!maxX || !maxY) { emptyPlot(c, w, h, "Not enough data to compare"); return; }
+
+  c.strokeStyle = "#2E2720"; c.lineWidth = 1;
+  for (i = 1; i <= 3; i++) {
+    var gy = pad + (h - pad * 2) * i / 4;
+    c.beginPath(); c.moveTo(0, gy + .5); c.lineTo(w, gy + .5); c.stroke();
+  }
+
+  series.forEach(function (s2) {
+    c.strokeStyle = s2.color; c.lineWidth = 1.8; c.lineJoin = "round";
+    c.beginPath();
+    for (j = 0; j < s2.pts.length; j++) {
+      var x = (byDistance ? s2.pts[j].d : j) / maxX * w;
+      var y = h - pad - (s2.pts[j].r / maxY) * (h - pad * 2);
+      if (j === 0) c.moveTo(x, y); else c.lineTo(x, y);
+    }
+    c.stroke();
+  });
+
+  c.fillStyle = "#998C79"; c.font = "11px -apple-system,sans-serif";
+  c.fillText(maxY.toFixed(2) + " g", 5, 12);
+  c.textAlign = "right";
+  c.fillText(byDistance ? Math.round(maxX) + " m" : Math.round(maxX) + " s", w - 5, h - 4);
+  c.textAlign = "left";
+}
+
+/* The same tracks laid over each other. Colour identifies the run, line weight is the
+   g force at that moment, so a rough section shows up as a thickening of every line
+   that passed through it. */
+function drawCompareMap(series) {
+  var f = fitCanvas($("cvCmpMap"), 230);
+  if (!f) return;
+  var c = f.c, w = f.w, h = f.h, i, j;
+  c.clearRect(0, 0, w, h);
+  var minLa = 90, maxLa = -90, minLo = 180, maxLo = -180, any = false, maxR = 0;
+  series.forEach(function (s2) {
+    s2.pts.forEach(function (p) {
+      if (!hasFix(p)) return;
+      any = true;
+      if (p.lat < minLa) minLa = p.lat;
+      if (p.lat > maxLa) maxLa = p.lat;
+      if (p.lon < minLo) minLo = p.lon;
+      if (p.lon > maxLo) maxLo = p.lon;
+      if (p.r > maxR) maxR = p.r;
+    });
+  });
+  if (!any) { emptyPlot(c, w, h, "No GPS on these runs"); return; }
+  var kx = Math.cos(((minLa + maxLa) / 2) * Math.PI / 180);
+  var dLa = Math.max(maxLa - minLa, 1e-6), dLo = Math.max((maxLo - minLo) * kx, 1e-6);
+  var pad = 18, sc = Math.min((w - pad * 2) / dLo, (h - pad * 2) / dLa);
+  var ox = (w - dLo * sc) / 2, oy = (h - dLa * sc) / 2;
+  function px(p) { return ox + (p.lon - minLo) * kx * sc; }
+  function py(p) { return h - (oy + (p.lat - minLa) * sc); }
+
+  c.lineCap = "round"; c.lineJoin = "round";
+  series.forEach(function (s2) {
+    c.strokeStyle = s2.color;
+    for (j = 1; j < s2.pts.length; j++) {
+      var a = s2.pts[j - 1], b = s2.pts[j];
+      if (!hasFix(a) || !hasFix(b)) continue;
+      c.lineWidth = 1 + (maxR ? (b.r / maxR) : 0) * 5;
+      c.beginPath(); c.moveTo(px(a), py(a)); c.lineTo(px(b), py(b)); c.stroke();
+    }
+    var st = null;
+    for (j = 0; j < s2.pts.length; j++) { if (hasFix(s2.pts[j])) { st = s2.pts[j]; break; } }
+    if (st) { c.fillStyle = s2.color; c.beginPath(); c.arc(px(st), py(st), 4, 0, 6.2832); c.fill(); }
+  });
+  c.fillStyle = "#998C79"; c.font = "11px -apple-system,sans-serif";
+  c.fillText("thickest = " + maxR.toFixed(2) + " g", 5, 13);
+}
+
+/* Official Baden-Wuerttemberg aerial imagery: 20 cm colour orthophotos, open data
+   under dl-de/by-2.0. The tile matrix set is GoogleMapsCompatible, i.e. ordinary Web
+   Mercator, so Leaflet needs no projection shim. Loaded on demand and only when
+   online, because none of this works in a forest. */
+var LGL_BASE = "https://owsproxy.lgl-bw.de/owsproxy/ows/";
+
+/* I cannot query the LGL service from here to learn the exact tile addressing it
+   wants, and guessing wrong gives a blank map. So the app tries each known form in
+   turn, keeps the first that actually returns tiles, and remembers it. The last
+   entry is a plain street map: not aerial, but it proves the map itself works. */
+var IMAGERY = [
+  { name: "LGL aerial, WMTS", kind: "tile",
+    url: LGL_BASE + "WMTS_LGL-BW_ATKIS_DOP_20_C?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0" +
+         "&LAYER=DOP_20_C&STYLE=default&TILEMATRIXSET=GoogleMapsCompatible" +
+         "&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/png",
+    credit: "LGL-BW, dl-de/by-2.0" },
+  { name: "LGL aerial, WMTS prefixed", kind: "tile",
+    url: LGL_BASE + "WMTS_LGL-BW_ATKIS_DOP_20_C?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0" +
+         "&LAYER=DOP_20_C&STYLE=default&TILEMATRIXSET=GoogleMapsCompatible" +
+         "&TILEMATRIX=GoogleMapsCompatible%3A{z}&TILEROW={y}&TILECOL={x}&FORMAT=image/png",
+    credit: "LGL-BW, dl-de/by-2.0" },
+  { name: "LGL aerial, WMTS jpeg", kind: "tile",
+    url: LGL_BASE + "WMTS_LGL-BW_ATKIS_DOP_20_C?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0" +
+         "&LAYER=DOP_20_C&STYLE=default&TILEMATRIXSET=GoogleMapsCompatible" +
+         "&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/jpeg",
+    credit: "LGL-BW, dl-de/by-2.0" },
+  { name: "LGL aerial, WMTS rest", kind: "tile",
+    url: LGL_BASE + "WMTS_LGL-BW_ATKIS_DOP_20_C/DOP_20_C/default/GoogleMapsCompatible/{z}/{y}/{x}.png",
+    credit: "LGL-BW, dl-de/by-2.0" },
+  { name: "LGL aerial, WMS", kind: "wms",
+    url: LGL_BASE + "WMS_LGL-BW_ATKIS_DOP_20_C",
+    layers: "DOP_20_C", credit: "LGL-BW, dl-de/by-2.0" },
+  { name: "Street map, not aerial", kind: "tile",
+    url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+    credit: "OpenStreetMap contributors" }
+];
+function imageryPref() {
+  try { return parseInt(localStorage.getItem("bumplogImagery"), 10) || 0; } catch (e) { return 0; }
+}
+function setImageryPref(i) {
+  try { localStorage.setItem("bumplogImagery", i); } catch (e) { /* private mode */ }
+}
+
+var BW_BOUNDS = [[47.40, 7.30], [49.90, 10.60]];
+var leafletReady = null, theMap = null, mapLayers = [];
+
+function ensureLeaflet() {
+  if (leafletReady) return leafletReady;
+  leafletReady = new Promise(function (res, rej) {
+    if (window.L) { res(window.L); return; }
+    var css = document.createElement("link");
+    css.rel = "stylesheet";
+    css.href = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css";
+    document.head.appendChild(css);
+    var js = document.createElement("script");
+    js.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js";
+    js.onload = function () { res(window.L); };
+    js.onerror = function () { rej(new Error("could not load the map library")); };
+    document.head.appendChild(js);
+  });
+  return leafletReady;
+}
+
+function openMapFor(series, title) {
+  $("mapTitle").textContent = title;
+  $("mapCap").textContent = "";
+  if (theMap) { theMap.remove(); theMap = null; }
+  $("mapBox").innerHTML = "";
+  $("mapSheet").classList.add("on");
+  $("mapLegend").innerHTML = series.map(function (s2) {
+    return '<span><i style="background:' + s2.color + '"></i>' + s2.name + "</span>";
+  }).join("");
+
+  var any = series.some(function (s2) {
+    return s2.pts.some(hasFix);
+  });
+  if (!any) { $("mapCap").textContent = "No GPS on this run, so there is nothing to place."; return; }
+  if (navigator.onLine === false) {
+    $("mapCap").textContent = "Offline. Connect to wifi and open this again for the imagery.";
+    return;
+  }
+
+  $("mapCap").textContent = "Loading the map library";
+  ensureLeaflet().then(function (L) {
+    $("mapCap").textContent = "Library loaded, building the map";
+    if (theMap) { theMap.remove(); theMap = null; }
+    theMap = L.map("mapBox", {
+      maxBounds: BW_BOUNDS, maxBoundsViscosity: 0.8,
+      minZoom: 10, maxZoom: 19, zoomControl: true, attributionControl: true
+    });
+    var layer = null, trying = imageryPref(), giveUp = false;
+
+    function makeLayer(spec) {
+      var opts = { maxZoom: 19, minZoom: 10, bounds: BW_BOUNDS, attribution: spec.credit };
+      if (spec.kind === "wms") {
+        return L.tileLayer.wms(spec.url, {
+          layers: spec.layers, format: "image/png", transparent: false,
+          maxZoom: 19, minZoom: 10, attribution: spec.credit
+        });
+      }
+      return L.tileLayer(spec.url, opts);
+    }
+
+    function trySource(i) {
+      if (i >= IMAGERY.length) {
+        giveUp = true;
+        $("mapCap").textContent = "Track drawn. No imagery source would load.";
+        return;
+      }
+      trying = i;
+      var spec = IMAGERY[i];
+      if (layer) { theMap.removeLayer(layer); layer = null; }
+      var good = 0, bad = 0, settled = false;
+      layer = makeLayer(spec);
+      layer.on("tileload", function () {
+        good++;
+        if (!settled) {
+          settled = true;
+          setImageryPref(i);
+          $("mapCap").textContent = "Imagery: " + spec.name + ". Thicker line means higher g.";
+        }
+      });
+      layer.on("tileerror", function () { bad++; });
+      layer.addTo(theMap);
+      $("mapCap").textContent = "Trying " + spec.name;
+      setTimeout(function () {
+        if (settled || giveUp) return;
+        if (good === 0) trySource(i + 1);
+      }, 4000);
+    }
+    $("mapNext").onclick = function () {
+      if (!theMap) return;
+      giveUp = false;
+      trySource((trying + 1) % IMAGERY.length);
+    };
+
+    var maxR = 0, all = [];
+    series.forEach(function (s2) {
+      s2.pts.forEach(function (p) { if (p.r > maxR) maxR = p.r; });
+    });
+    series.forEach(function (s2) {
+      var prev = null;
+      s2.pts.forEach(function (p) {
+        if (!hasFix(p)) return;
+        if (prev) {
+          L.polyline([[prev.lat, prev.lon], [p.lat, p.lon]], {
+            color: s2.color,
+            weight: 2 + (maxR ? p.r / maxR : 0) * 7,
+            opacity: 0.85
+          }).addTo(theMap);
+        }
+        all.push([p.lat, p.lon]);
+        prev = p;
+      });
+    });
+    if (all.length < 2) {
+      $("mapCap").textContent = "Only " + all.length + " usable positions, cannot place this run.";
+      return;
+    }
+    theMap.fitBounds(L.latLngBounds(all).pad(0.15));
+    setTimeout(function () { theMap.invalidateSize(); }, 60);
+    trySource(trying);
+    $("mapCap").textContent = "Thicker line means higher g. Pinch or use the buttons to zoom.";
+
+    /* If the imagery itself will not load, the track still draws on grey. Say which
+       of the two failed rather than leaving it ambiguous. */
+  }).catch(function (e) {
+    $("mapCap").textContent = "Imagery unavailable: " + (e && e.message ? e.message : e);
+  });
+}
+$("mapBack").onclick = function () {
+  $("mapSheet").classList.remove("on");
+  if (theMap) { theMap.remove(); theMap = null; }
+};
+
+function openCompare(runs, label, runNo) {
+  $("cmpTitle").textContent = label;
+  $("cmpLegend").innerHTML = "";
+  $("cmpRows").innerHTML = "";
+  $("cmpCap").textContent = "Reading the runs";
+  $("cmpMapCap").textContent = "";
+  $("cmpSheet").classList.add("on");
+  Promise.all(runs.map(function (r) { return byRide("gps", r.id); })).then(function (res) {
+    var series = runs.map(function (r, i) {
+      return {
+        ride: r,
+        pts: smooth3(buildCompareSeries(r, res[i])),
+        color: CMP_COLORS[i % CMP_COLORS.length]
+      };
+    }).filter(function (s2) { return s2.pts.length > 2; });
+
+    if (!series.length) { $("cmpCap").textContent = "These runs have no roughness data."; return; }
+    var far = 0;
+    series.forEach(function (s2) { far = Math.max(far, s2.pts[s2.pts.length - 1].d); });
+    var byDistance = far > 50;
+    drawCompare(series, byDistance);
+    $("cmpCap").textContent = byDistance
+      ? "Roughness along the trail, second by second, against distance covered."
+      : "No usable GPS on these runs, so this is against time instead.";
+
+    drawCompareMap(series);
+
+    /* No console on the phone, so the numbers have to come out on screen. */
+    $("cmpDiag").textContent = series.map(function (s2, i) {
+      var n = s2.pts.length;
+      var fixed = s2.pts.filter(hasFix).length;
+      var span = n ? Math.round(s2.pts[n - 1].d) : 0;
+      return "r" + (i + 1) + ": " + (res[i] ? res[i].length : 0) + " chunks, " +
+             n + " s, " + fixed + " fixed, " + span + " m";
+    }).join("   ");
+
+    series.forEach(function (s2) {
+      s2.name = "Run " + ((runNo && runNo[s2.ride.id]) || "");
+    });
+    $("cmpMapBtn").onclick = function () { openMapFor(series, label); };
+    $("cmpMapCap").textContent = byDistance
+      ? "The same tracks on top of each other. Thicker line means higher g at that point."
+      : "";
+
+    $("cmpLegend").innerHTML = series.map(function (s2) {
+      var n = (runNo && runNo[s2.ride.id]) || "";
+      return '<span><i style="background:' + s2.color + '"></i>Run ' + n + ", " +
+             (dateLabel(s2.ride.startedAt).split(", ")[1] || "") + "</span>";
+    }).join("");
+
+    var rowsHtml = "";
+    function line(name, pick) {
+      rowsHtml += '<div class="row"><span>' + name + '</span><span class="rv">' +
+        series.map(function (s2) { return pick(s2.ride); }).join("  |  ") + "</span></div>";
+    }
+    line("Roughness moving", function (r) { return (r.movRms || r.rms || 0).toFixed(2) + " g"; });
+    line("Hardest hit", function (r) { return (r.peak || 0).toFixed(1) + " g"; });
+    line("Vertical", function (r) { return (r.vRms || 0).toFixed(2) + " g"; });
+    line("Sideways", function (r) { return (r.lRms || 0).toFixed(2) + " g"; });
+    line("Top speed", function (r) { return (r.maxSpd || 0).toFixed(0) + " km/h"; });
+    line("Distance", function (r) { return ((r.dist || 0) / 1000).toFixed(2) + " km"; });
+    line("Descended", function (r) { return (r.drop || 0) + " m"; });
+    line("Riding time", function (r) { return hms((r.movSec || 0) * 1000); });
+    line("Stops", function (r) { return (r.pauses || 0) + ""; });
+    $("cmpRows").innerHTML = rowsHtml;
+  }).catch(function (e) {
+    $("cmpCap").textContent = "Could not read those runs: " + (e && e.message ? e.message : e);
+  });
+}
+$("cmpBack").onclick = function () { $("cmpSheet").classList.remove("on"); };
+
+/* ------------------------------------------------------------- detail */
+var openR = null, openPts = null, openChunks = null, openJumps = null, openRough = null;
+
+function bySeq(a, b) { return a.k < b.k ? -1 : 1; }
+
+function cellHtml(v, k) {
+  return '<div class="cell"><div class="v num">' + v + '</div><div class="k">' + k + '</div></div>';
+}
+function addCell(v, k) { $("sheetGrid").innerHTML += cellHtml(v, k); }
+
+function openRide(r) {
+  try {
+    openR = r; openPts = null; openChunks = null; openJumps = null; openRough = null;
+    $("sheetTitle").textContent = dateLabel(r.startedAt);
+    var cells = [
+      [hms(r.dur || 0), "duration"],
+      [((r.dist || 0) / 1000).toFixed(2) + " km", "distance"],
+      [(r.drop || 0) + " m", "descended"],
+      [(r.maxSpd || 0).toFixed(1) + " km/h", "top speed"],
+      [(r.rms || 0).toFixed(3) + " g", "average roughness"],
+      [(r.peak || 0).toFixed(2) + " g", "hardest single hit"],
+      [(r.nAccel || 0).toLocaleString(), "accel samples"],
+      [(r.hz || 0) + " Hz", "sample rate"]
+    ];
+    if (r.vRms !== null && r.vRms !== undefined) {
+      cells.push([r.vRms.toFixed(3) + " g", "vertical roughness"]);
+      cells.push([r.lRms.toFixed(3) + " g", "lateral roughness"]);
+    }
+    if (r.maxTurn) cells.push([r.maxTurn + " deg/s", "fastest rotation"]);
+    if (r.gpsDrops) cells.push([r.gpsDrops, "GPS restarts during the ride"]);
+    if (r.gpsAcc !== null && r.gpsAcc !== undefined) {
+      cells.push([r.gpsAcc.toFixed(0) + " m", "average fix accuracy, over 30 means no sky view"]);
+    }
+    if (r.gpsStuck) cells.push(["stuck", "GPS never moved the whole run"]);
+    if (r.mountRatio !== null && r.mountRatio !== undefined) {
+      cells.push([r.mountRatio.toFixed(2), "sideways against vertical energy, 1.41 is shapeless"]);
+    }
+    if (r.rms) cells.push([surfaceOf(r.movRms || r.rms), "what the surface felt like"]);
+    if (r.movRms) {
+      cells.push([r.movRms.toFixed(3) + " g", "roughness while actually moving"]);
+      cells.push([hms((r.movSec || 0) * 1000), "of that spent riding"]);
+    }
+    if (r.pauses) {
+      cells.push([r.pauses + " x " + (r.pausedSec || 0) + " s",
+                  "stops during the run, kept out of the figures"]);
+    }
+    if (r.gpsCoarse) cells.push([r.gpsCoarse, "fixes too coarse to use"]);
+    if (r.gpsGapMed !== null && r.gpsGapMed !== undefined) {
+      cells.push([r.gpsGapMed + " s", "typical gap between GPS fixes"]);
+      cells.push([r.gpsGapMax + " s", "longest the GPS went quiet"]);
+    }
+    if (r.gpsFirstFix !== null && r.gpsFirstFix !== undefined) {
+      cells.push([r.gpsFirstFix + " s", "before the first fix arrived"]);
+    }
+    if (r.clip) {
+      cells.push([Math.round(r.clip / Math.max(r.nAccel, 1) * 1000) / 10 + "%",
+                  "readings over 9 g"]);
+    }
+    $("sheetGrid").innerHTML = cells.map(function (cc) {
+      return cellHtml(cc[0], cc[1]);
+    }).join("");
+    $("hSum").textContent = "";
+    $("hSec").textContent = "recommended";
+    $("hAll").textContent = (r.nAccel || 0).toLocaleString() + " rows";
+    $("sheet").classList.add("on");
+    $("capAccel").textContent = "";
+    $("capSpeed").textContent = "";
+    $("trackCap").textContent = "";
+    clearPlot("cvAccel", 150); clearPlot("cvSpeed", 150); clearPlot("cvTrack", 200);
+    loadRide(r);
+  } catch (e) {
+    toast("Could not open ride: " + (e && e.message ? e.message : e));
+  }
+}
+
+$("detailMapBtn").onclick = function () {
+  if (!openR) return;
+  if (!openChunks && !openPts) { toast("Still reading the samples"); return; }
+  byRide("gps", openR.id).then(function (chunks) {
+    var pts = smooth3(buildCompareSeries(openR, chunks));
+    openMapFor([{ ride: openR, pts: pts, color: "#F4671F", name: "This run" }],
+               dateLabel(openR.startedAt));
+  });
+};
+
+function loadRide(r) {
+  Promise.all([byRide("accel", r.id), byRide("gps", r.id)]).then(function (res) {
+    if (!openR || openR.id !== r.id) return;          // sheet closed while loading
+    var aChunks = res[0].sort(bySeq), gChunks = res[1].sort(bySeq);
+    openChunks = aChunks;
+
+    var pts = [];
+    gChunks.forEach(function (ch) { pts = pts.concat(ch.p); });
+    openPts = pts;
+    // coarse fixes are kept in the export but would wreck the drawn track
+    var clean = pts.filter(function (q) {
+      return (q.acc === null || q.acc === undefined || q.acc <= GPS_USE_ACC) && hasFix(q);
+    });
+
+    var dur = Math.max(r.dur || 0, 1);
+    var cols = Math.max(60, Math.round($("cvAccel").clientWidth || 340));
+    var env = buildEnvelope(aChunks, dur, cols);
+    var rough = (r.rough && r.rough.length) ? r.rough : env.rough;
+
+    var jumps = (r.jumps !== undefined && r.jumps !== null) ? r.jumps : env.jumps;
+    openJumps = jumps; openRough = rough;
+    var airMs = (r.airMs !== undefined && r.airMs !== null) ? r.airMs : env.airMs;
+
+    drawAccel(env, rough, dur, jumps);
+    drawSpeedAlt(clean, dur);
+    drawTrack(clean, rough, jumps);
+
+    if (jumps && jumps.length) {
+      var longest = 0;
+      for (var q = 0; q < jumps.length; q++) if (jumps[q].dur > longest) longest = jumps[q].dur;
+      addCell(jumps.length, "jumps");
+      addCell((airMs / 1000).toFixed(1) + " s", "total airtime");
+      addCell((longest / 1000).toFixed(2) + " s", "longest air");
+      addCell(airHeight(longest).toFixed(2) + " m", "that jump's hang height");
+    }
+
+    $("capAccel").textContent = env.n
+      ? "Every one of the " + env.n.toLocaleString() + " readings, gravity removed. The grey " +
+        "band is the full swing, the orange edges are the typical energy each second."
+      : "Nothing was stored for this ride.";
+    $("capSpeed").textContent = clean.length > 1
+      ? "Speed in orange, ground height as the shaded area behind it."
+      : "";
+    $("trackCap").textContent = clean.length > 1
+      ? "Green is the start. Brighter orange means the trail was rougher there." +
+        (jumps && jumps.length ? " Yellow dots are jumps." : "")
+      : "";
+    if (jumps && jumps.length) {
+      $("capAccel").textContent += " Yellow marks along the top are time in the air.";
+    }
+  }).catch(function (e) {
+    toast("Could not read ride data: " + (e && e.message ? e.message : e));
+  });
+}
+
+$("sheetBack").onclick = function () {
+  $("sheet").classList.remove("on");
+  openR = null; openPts = null; openChunks = null;   // let the samples be collected
+};
+$("sheetDel").onclick = function () { if (openR) confirmDelete(openR); };
+
+/* ------------------------------------------------------------- export */
+var ACCEL_COLS = ["t_ms", "ax", "ay", "az", "lin_x", "lin_y", "lin_z",
+                  "rot_alpha", "rot_beta", "rot_gamma"];
+
+function fx(arr, i) {
+  if (!arr) return "";
+  var v = arr[i];
+  return (v === null || v === undefined || v !== v) ? "" : v.toFixed(4);
+}
+
+function gpsRows(pts) {
+  var out = ["t_ms,epoch_ms,lat,lon,alt_m,acc_m,speed_ms,heading_deg"];
+  pts.forEach(function (p) {
+    out.push([p.t, p.epoch, p.lat.toFixed(7), p.lon.toFixed(7),
+      p.alt === null ? "" : p.alt.toFixed(2),
+      p.acc === null ? "" : p.acc.toFixed(1),
+      p.spd === null ? "" : p.spd.toFixed(2),
+      p.hdg === null ? "" : p.hdg.toFixed(1)].join(","));
+  });
+  return out.join("\n");
+}
+function gpxDoc(r, pts) {
+  var body = pts.map(function (p) {
+    return '  <trkpt lat="' + p.lat.toFixed(7) + '" lon="' + p.lon.toFixed(7) + '">' +
+      (p.alt === null ? "" : "<ele>" + p.alt.toFixed(1) + "</ele>") +
+      "<time>" + new Date(p.epoch).toISOString() + "</time></trkpt>";
+  }).join("\n");
+  return '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<gpx version="1.1" creator="Bumplog" xmlns="http://www.topografix.com/GPX/1/1">\n' +
+    "<trk><name>" + dateLabel(r.startedAt) + "</name><trkseg>\n" + body + "\n</trkseg></trk>\n</gpx>";
+}
+function fileBase(r) {
+  var d = new Date(r.startedAt);
+  return "bumplog-" + d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate()) +
+         "-" + pad2(d.getHours()) + pad2(d.getMinutes());
+}
+/* Getting a file off an iPhone from a web app is the fiddliest part of this whole
+   project. The share sheet is the only route that leaves a real file in the Files
+   app, and it only works inside a user gesture, so every export is assembled
+   synchronously on the tap. When it does not work we say why and offer the
+   alternatives rather than failing in silence. */
+var lastExport = null;
+
+function makeFile(blob, name, mime) {
+  try { return new File([blob], name, { type: mime }); } catch (e) { return null; }
+}
+
+/* iOS maps a filename extension to a system file type and refuses to share the ones
+   it does not recognise, which is why a .json file throws TypeError. Walk a ladder
+   of increasingly plain alternatives and hand back the first the phone will accept. */
+function shareLadder(name, mime) {
+  var dot = name.lastIndexOf(".");
+  var stem = dot > 0 ? name.slice(0, dot) : name;
+  var ext = dot > 0 ? name.slice(dot) : "";
+  return [
+    { n: name, m: mime },
+    { n: name, m: "text/plain" },
+    { n: stem + ext + ".txt", m: "text/plain" },
+    { n: stem + ".txt", m: "text/plain" },
+    { n: stem + ".csv", m: "text/csv" }
+  ];
+}
+
+function pickShareable(blob, name, mime) {
+  var lad = shareLadder(name, mime), i, f;
+  for (i = 0; i < lad.length; i++) {
+    f = makeFile(blob, lad[i].n, lad[i].m);
+    if (!f) continue;
+    if (!navigator.canShare) return f;
+    try { if (navigator.canShare({ files: [f] })) return f; } catch (e) { /* try next */ }
+  }
+  return null;
+}
+
+/* canShare is not always honest on iOS, so record what actually gets refused and
+   skip it next time rather than making the person tap through the same failure. */
+var shareBlocked = {};
+function pickShareableSkipping(blob, name, mime) {
+  var lad = shareLadder(name, mime), i, f;
+  for (i = 0; i < lad.length; i++) {
+    if (shareBlocked[lad[i].m + "|" + lad[i].n.slice(lad[i].n.lastIndexOf("."))]) continue;
+    f = makeFile(blob, lad[i].n, lad[i].m);
+    if (!f) continue;
+    if (!navigator.canShare) return f;
+    try { if (navigator.canShare({ files: [f] })) return f; } catch (e) { /* try next */ }
+  }
+  return null;
+}
+function markBlocked(file) {
+  if (!file) return;
+  var d = file.name.lastIndexOf(".");
+  shareBlocked[file.type + "|" + (d > 0 ? file.name.slice(d) : "")] = true;
+}
+
+function deliver(name, parts, mime) {
+  var blob;
+  try {
+    blob = new Blob(parts, { type: mime + ";charset=utf-8" });
+  } catch (e) {
+    toast("Could not build the file: " + (e && e.message ? e.message : e));
+    return;
+  }
+  lastExport = { blob: blob, name: name, parts: parts, mime: mime };
+
+  if (!navigator.share) { showExport("this browser cannot share files"); return; }
+  var file = pickShareableSkipping(blob, name, mime);
+  if (!file) { showExport("iOS will not accept any file type we can build"); return; }
+
+  try {
+    var p = navigator.share({ files: [file] });
+    if (p && p.then) {
+      p.then(null, function (err) {
+        if (err && err.name === "AbortError") return;          // cancelled, all fine
+        markBlocked(file);
+        showExport("iOS refused a " + file.type + " file (" + (err && err.name ? err.name : err) + ")");
+      });
+    }
+  } catch (e) {
+    markBlocked(file);
+    showExport("iOS refused a " + file.type + " file (" + (e && e.name ? e.name : e) + ")");
+  }
+}
+
+function showExport(why, ok) {
+  if (!lastExport) return;
+  var kb = lastExport.blob.size / 1024;
+  $("expName").textContent = lastExport.name;
+  $("expSize").textContent = kb > 1024 ? (kb / 1024).toFixed(2) + " MB" : kb.toFixed(0) + " KB";
+  $("expWhy").textContent = why;
+  $("expWhy").className = "rv " + (ok ? "ok" : "no");
+  $("expShare").classList.toggle("go", !!ok);
+  $("expCopy").classList.toggle("go", !ok);
+  var url = URL.createObjectURL(lastExport.blob);
+  $("expDl").href = url;
+  $("expDl").setAttribute("download", lastExport.name);
+  var head = "";
+  for (var i = 0; i < lastExport.parts.length && head.length < 4000; i++) head += lastExport.parts[i];
+  $("expText").value = head.slice(0, 4000) + (head.length > 4000 ? "\n... rest of the file omitted from this preview" : "");
+  $("expSheet").classList.add("on");
+}
+$("expBack").onclick = function () { $("expSheet").classList.remove("on"); };
+$("expShare").onclick = function () {
+  if (!lastExport || !navigator.share) { toast("Sharing is not available here"); return; }
+  var f = pickShareableSkipping(lastExport.blob, lastExport.name, lastExport.mime);
+  if (!f) { toast("Every file type was refused. Use Copy instead."); return; }
+  try {
+    navigator.share({ files: [f] }).then(function () {
+      $("expSheet").classList.remove("on");
+    }, function (err) {
+      if (!err || err.name === "AbortError") return;
+      markBlocked(f);
+      $("expWhy").textContent = "refused " + f.type + " as " + f.name.slice(f.name.lastIndexOf("."));
+      toast("Refused again. Tap once more to try a plainer type, or use Copy.");
+    });
+  } catch (e) {
+    markBlocked(f);
+    toast("Refused again. Tap once more to try a plainer type, or use Copy.");
+  }
+};
+$("expShareText").onclick = function () {
+  if (!lastExport || !navigator.share) { toast("Sharing is not available here"); return; }
+  var text = lastExport.parts.join("");
+  if (text.length > 400000) { toast("Too long to send as a message. Use Copy."); return; }
+  try {
+    navigator.share({ text: text }).then(function () {
+      $("expSheet").classList.remove("on");
+    }, function (err) {
+      if (!err || err.name === "AbortError") return;
+      toast("Message share refused: " + (err && err.name ? err.name : err));
+    });
+  } catch (e) { toast("Message share threw " + (e && e.name ? e.name : e)); }
+};
+$("expCopy").onclick = function () {
+  if (!lastExport) return;
+  var text = lastExport.parts.join("");
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function () {
+      toast("Copied, " + Math.round(text.length / 1024) + " KB on the clipboard");
+    }, function () { copyBySelection(text); });
+  } else copyBySelection(text);
+};
+function copyBySelection(text) {
+  var ta = $("expText");
+  var was = ta.value;
+  ta.value = text;
+  ta.focus();
+  ta.setSelectionRange(0, ta.value.length);
+  var ok = false;
+  try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+  ta.value = was;
+  toast(ok ? "Copied" : "Could not copy. Use Save to Files instead.");
+}
+
+function num(arr, i) {
+  if (!arr) return "null";
+  var v = arr[i];
+  return (v === null || v === undefined || v !== v) ? "null" : (Math.round(v * 10000) / 10000);
+}
+
+function accelCsvParts(chunks) {
+  var parts = [ACCEL_COLS.join(",") + "\n"], buf = [], i;
+  for (var c = 0; c < chunks.length; c++) {
+    var ch = chunks[c];
+    for (i = 0; i < ch.t.length; i++) {
+      buf.push(ch.t[i] + "," +
+        fx(ch.x, i) + "," + fx(ch.y, i) + "," + fx(ch.z, i) + "," +
+        fx(ch.lx, i) + "," + fx(ch.ly, i) + "," + fx(ch.lz, i) + "," +
+        fx(ch.ra, i) + "," + fx(ch.rb, i) + "," + fx(ch.rg, i));
+      if (buf.length >= 2000) { parts.push(buf.join("\n") + "\n"); buf = []; }
+    }
+  }
+  if (buf.length) parts.push(buf.join("\n") + "\n");
+  return parts;
+}
+
+function jsonHead(r, pts, extra) {
+  return '{\n"bumplog": ' + JSON.stringify(VERSION) +
+    ',\n"kind": ' + JSON.stringify(extra) +
+    ',\n"units": ' + JSON.stringify({
+      t_ms: "milliseconds since the ride started",
+      ax_ay_az: "m/s^2, gravity included, phone frame",
+      lin: "m/s^2, gravity removed by iOS",
+      rot: "degrees per second",
+      gps_alt: "metres", gps_spd: "m/s", gps_acc: "metres",
+      roughness: "g, RMS of the high-passed magnitude, one value per second"
+    }) +
+    ',\n"ride": ' + JSON.stringify(r) +
+    ',\n"gps": ' + JSON.stringify(pts) +
+    ',\n"accelColumns": ' + JSON.stringify(ACCEL_COLS);
+}
+
+function rowText(ch, i) {
+  return "[" + ch.t[i] + "," +
+    num(ch.x, i) + "," + num(ch.y, i) + "," + num(ch.z, i) + "," +
+    num(ch.lx, i) + "," + num(ch.ly, i) + "," + num(ch.lz, i) + "," +
+    num(ch.ra, i) + "," + num(ch.rb, i) + "," + num(ch.rg, i) + "]";
+}
+
+function jsonParts(r, pts, chunks) {
+  var parts = [jsonHead(r, pts, "full") + ',\n"accel": ['];
+  var buf = [], first = true, i;
+  for (var c = 0; c < chunks.length; c++) {
+    var ch = chunks[c];
+    for (i = 0; i < ch.t.length; i++) {
+      buf.push(rowText(ch, i));
+      if (buf.length >= 2000) { parts.push((first ? "" : ",") + buf.join(",")); first = false; buf = []; }
+    }
+  }
+  if (buf.length) parts.push((first ? "" : ",") + buf.join(","));
+  parts.push("]\n}\n");
+  return parts;
+}
+
+/* One flat table, which is what a spreadsheet or pandas actually wants. GPS columns
+   are written only on the rows where a new fix arrived; fill them downwards on load.
+   Ride metadata rides along as # comment lines, which pandas skips with comment="#". */
+function metaLines(r, jumps) {
+  var L = [
+    "# bumplog " + VERSION,
+    "# ride," + r.id,
+    "# started," + new Date(r.startedAt).toISOString(),
+    "# duration_s," + ((r.dur || 0) / 1000).toFixed(1),
+    "# distance_m," + (r.dist || 0),
+    "# descended_m," + (r.drop || 0),
+    "# top_speed_kmh," + (r.maxSpd || 0),
+    "# roughness_rms_g," + (r.rms || 0),
+    "# roughness_moving_g," + (r.movRms === null || r.movRms === undefined ? "" : r.movRms),
+    "# moving_time_s," + (r.movSec || 0),
+    "# stops," + (r.pauses || 0),
+    "# stopped_time_s," + (r.pausedSec || 0),
+    "# peak_g," + (r.peak || 0),
+    "# sample_rate_hz," + (r.hz || 0),
+    "# vertical_rms_g," + (r.vRms === null || r.vRms === undefined ? "" : r.vRms),
+    "# lateral_rms_g," + (r.lRms === null || r.lRms === undefined ? "" : r.lRms),
+    "# max_rotation_degs," + (r.maxTurn || ""),
+    "# gps_fixes," + (r.nGps || 0),
+    "# gps_mean_accuracy_m," + (r.gpsAcc === null || r.gpsAcc === undefined ? "" : r.gpsAcc),
+    "# gps_position_stuck," + (r.gpsStuck ? "yes" : "no"),
+    "# gps_prestart_fixes_dropped," + (r.gpsPreDrop || 0),
+    "# gps_coarse_fixes," + (r.gpsCoarse || 0),
+    "# gps_first_fix_s," + (r.gpsFirstFix === null || r.gpsFirstFix === undefined ? "" : r.gpsFirstFix),
+    "# gps_fix_gap_median_s," + (r.gpsGapMed === null || r.gpsGapMed === undefined ? "" : r.gpsGapMed),
+    "# gps_fix_gap_max_s," + (r.gpsGapMax === null || r.gpsGapMax === undefined ? "" : r.gpsGapMax),
+    "# surface," + surfaceOf(r.rms),
+    "# gps_restarts," + (r.gpsDrops || 0),
+    "# mount_ratio," + (r.mountRatio === null || r.mountRatio === undefined ? "" : r.mountRatio),
+    "# clipped_samples," + (r.clip || 0),
+    "# raw_peak_g," + (r.rawPeak || ""),
+    "# jumps," + ((jumps && jumps.length) || 0),
+    "# airtime_s," + (((r.airMs || 0) / 1000).toFixed(2))
+  ];
+  if (jumps) {
+    for (var j = 0; j < jumps.length; j++) {
+      L.push("# jump," + jumps[j].t + "," + jumps[j].dur + "," + jumps[j].peak + "," +
+             airHeight(jumps[j].dur).toFixed(2));
+    }
+    if (jumps.length) L.push("# jump_columns,start_ms,duration_ms,landing_g,hang_height_m");
+  }
+  return L.join("\n") + "\n";
+}
+
+/* A 210 ms jump starting at 33155 ms belongs to second 33, but testing only the
+   instant t=33000 misses it. Test whether the jump overlaps the window at all. */
+function inAirAt(jumps, t, span) {
+  if (!jumps) return 0;
+  var w = span || 1;
+  for (var j = 0; j < jumps.length; j++) {
+    if (jumps[j].t < t + w && jumps[j].t + jumps[j].dur > t) return 1;
+  }
+  return 0;
+}
+
+var CSV_ALL = ACCEL_COLS.concat(
+  ["lat", "lon", "alt_m", "gps_acc_m", "speed_ms", "heading_deg", "in_air"]);
+
+function combinedCsvParts(r, pts, chunks, jumps) {
+  var parts = [metaLines(r, jumps), CSV_ALL.join(",") + "\n"];
+  var buf = [], i, g = 0;
+  var sorted = (pts || []).slice().sort(function (a, b) { return a.t - b.t; });
+  for (var c = 0; c < chunks.length; c++) {
+    var ch = chunks[c];
+    for (i = 0; i < ch.t.length; i++) {
+      var t = ch.t[i], gpsCols = ",,,,,";
+      if (g < sorted.length && sorted[g].t <= t) {
+        var p = sorted[g++];
+        gpsCols = p.lat.toFixed(7) + "," + p.lon.toFixed(7) + "," +
+          (p.alt === null || p.alt === undefined ? "" : p.alt.toFixed(2)) + "," +
+          (p.acc === null || p.acc === undefined ? "" : p.acc.toFixed(1)) + "," +
+          (p.spd === null || p.spd === undefined ? "" : p.spd.toFixed(2)) + "," +
+          (p.hdg === null || p.hdg === undefined ? "" : p.hdg.toFixed(1));
+      }
+      buf.push(t + "," +
+        fx(ch.x, i) + "," + fx(ch.y, i) + "," + fx(ch.z, i) + "," +
+        fx(ch.lx, i) + "," + fx(ch.ly, i) + "," + fx(ch.lz, i) + "," +
+        fx(ch.ra, i) + "," + fx(ch.rb, i) + "," + fx(ch.rg, i) + "," +
+        gpsCols + "," + inAirAt(jumps, t, 17));
+      if (buf.length >= 2000) { parts.push(buf.join("\n") + "\n"); buf = []; }
+    }
+  }
+  if (buf.length) parts.push(buf.join("\n") + "\n");
+  return parts;
+}
+
+/* One row per second. A ten minute ride is a few hundred rows, small enough to open
+   anywhere and to paste into a message if the share sheet keeps refusing. */
+function secondCsvParts(r, pts, rough, jumps) {
+  var head = ["t_s", "roughness_g", "lat", "lon", "alt_m", "gps_acc_m", "speed_kmh", "in_air"];
+  var parts = [metaLines(r, jumps), head.join(",") + "\n"];
+  var secs = (rough && rough.length) ? rough.length : Math.ceil((r.dur || 0) / 1000);
+  var sorted = (pts || []).slice().sort(function (a, b) { return a.t - b.t; });
+  var rows = [], g = 0, last = null;
+  for (var sec = 0; sec < secs; sec++) {
+    var t = sec * 1000;
+    while (g < sorted.length && sorted[g].t <= t + 500) { last = sorted[g++]; }
+    rows.push(sec + "," +
+      (rough && rough[sec] !== undefined ? (Math.round(rough[sec] * 1000) / 1000) : "") + "," +
+      (last ? last.lat.toFixed(7) : "") + "," +
+      (last ? last.lon.toFixed(7) : "") + "," +
+      (last && last.alt !== null && last.alt !== undefined ? last.alt.toFixed(1) : "") + "," +
+      (last && last.acc !== null && last.acc !== undefined ? last.acc.toFixed(1) : "") + "," +
+      (last && last.spd !== null && last.spd !== undefined && last.spd >= 0
+        ? (last.spd * 3.6).toFixed(1) : "") + "," +
+      inAirAt(jumps, t, 1000));
+  }
+  parts.push(rows.join("\n") + "\n");
+  return parts;
+}
+
+function dayKey(ts) {
+  var d = new Date(ts);
+  return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+}
+
+/* Every ride from one day in a single table, each row tagged with its ride number.
+   Per ride summaries and jumps ride along as # comment lines above the data. */
+function dayParts(key, list, gpsByRide) {
+  var trailOf = {}, cl = clusterByPlace(list);
+  cl.trails.forEach(function (runs, i) {
+    runs.forEach(function (r) { trailOf[r.id] = "trail" + (i + 1); });
+  });
+  cl.unplaced.forEach(function (r) { trailOf[r.id] = "unknown"; });
+  var head = [
+    "# bumplog " + VERSION,
+    "# day," + key,
+    "# session," + (sessionNumbers()[key] || ""),
+    "# rides," + list.length,
+    "# ride_columns,n,id,started,duration_s,distance_m,descended_m,top_speed_kmh," +
+      "roughness_rms_g,roughness_moving_g,moving_time_s,stops,stopped_time_s," +
+      "peak_g,vertical_rms_g," +
+      "lateral_rms_g,mount_ratio,over_9g_samples," +
+      "accel_samples,jumps,airtime_s,gps_fixes,gps_mean_accuracy_m,gps_stuck,gps_restarts," +
+      "gps_prestart_dropped,gps_coarse_rejected,raw_peak_g,surface,gps_band," +
+      "trail,gps_first_fix_s,gps_gap_median_s,gps_gap_max_s,anchor_lat,anchor_lon"
+  ];
+  var jumpLines = [], rows = [], n, i;
+
+  function val(v) { return (v === null || v === undefined) ? "" : v; }
+
+  for (n = 0; n < list.length; n++) {
+    var r = list[n];
+    var jumps = r.jumps || [];
+    head.push("# ride," + (n + 1) + "," + r.id + "," + new Date(r.startedAt).toISOString() + "," +
+      ((r.dur || 0) / 1000).toFixed(1) + "," + (r.dist || 0) + "," + (r.drop || 0) + "," +
+      val(r.maxSpd) + "," + val(r.rms) + "," + val(r.movRms) + "," + (r.movSec || 0) + "," +
+      (r.pauses || 0) + "," + (r.pausedSec || 0) + "," +
+      val(r.peak) + "," +
+      val(r.vRms) + "," + val(r.lRms) + "," + val(r.mountRatio) + "," + (r.clip || 0) + "," +
+      (r.nAccel || 0) + "," + jumps.length + "," + ((r.airMs || 0) / 1000).toFixed(2) + "," +
+      (r.nGps || 0) + "," + val(r.gpsAcc) + "," + (r.gpsStuck ? "yes" : "no") + "," +
+      (r.gpsDrops || 0) + "," + (r.gpsPreDrop || 0) + "," + (r.gpsCoarse || 0) + "," +
+      val(r.rawPeak) + "," + surfaceOf(r.rms).split(",")[0] + "," + accBand(r).label + "," +
+      (trailOf[r.id] || "unknown") + "," + val(r.gpsFirstFix) + "," +
+      val(r.gpsGapMed) + "," + val(r.gpsGapMax) + "," +
+      (hasAnchor(r) ? r.anchorLat.toFixed(5) + "," + r.anchorLon.toFixed(5) : ","));
+    for (i = 0; i < jumps.length; i++) {
+      jumpLines.push("# jump," + (n + 1) + "," + jumps[i].t + "," + jumps[i].dur + "," +
+        jumps[i].peak + "," + airHeight(jumps[i].dur).toFixed(2));
+    }
+
+    var pts = [];
+    (gpsByRide[n] || []).sort(bySeq).forEach(function (ch) { pts = pts.concat(ch.p); });
+    pts.sort(function (a, b) { return a.t - b.t; });
+
+    var rough = r.rough || [];
+    var secs = Math.max(rough.length, Math.ceil((r.dur || 0) / 1000));
+    var g = 0, last = null;
+    for (var sec = 0; sec < secs; sec++) {
+      var t = sec * 1000;
+      while (g < pts.length && pts[g].t <= t + 500) { last = pts[g++]; }
+      rows.push((n + 1) + "," + sec + "," +
+        (rough[sec] !== undefined ? rough[sec] : "") + "," +
+        (last ? last.lat.toFixed(7) : "") + "," +
+        (last ? last.lon.toFixed(7) : "") + "," +
+        (last && last.alt !== null && last.alt !== undefined ? last.alt.toFixed(1) : "") + "," +
+        (last && last.acc !== null && last.acc !== undefined ? last.acc.toFixed(1) : "") + "," +
+        (last && last.spd !== null && last.spd !== undefined && last.spd >= 0
+          ? (last.spd * 3.6).toFixed(1) : "") + "," +
+        inAirAt(jumps, t, 1000));
+    }
+  }
+  if (jumpLines.length) {
+    jumpLines.unshift("# jump_columns,ride_n,start_ms,duration_ms,landing_g,hang_height_m");
+  }
+  return [
+    head.join("\n") + "\n",
+    jumpLines.length ? jumpLines.join("\n") + "\n" : "",
+    "ride,t_s,roughness_g,lat,lon,alt_m,gps_acc_m,speed_kmh,in_air\n",
+    rows.join("\n") + "\n"
+  ];
+}
+
+function openDaySheet() {
+  var days = {}, order = [];
+  for (var i = 0; i < rides.length; i++) {
+    var k = dayKey(rides[i].startedAt);
+    if (!days[k]) { days[k] = []; order.push(k); }
+    days[k].push(rides[i]);
+  }
+  var ul = $("dayList");
+  ul.innerHTML = "";
+  if (!order.length) {
+    ul.innerHTML = '<li class="empty"><b>No rides yet</b>Record something first.</li>';
+  }
+  order.forEach(function (k) {
+    var group = days[k];
+    var mins = 0, samples = 0;
+    group.forEach(function (r) { mins += (r.dur || 0); samples += (r.nAccel || 0); });
+    var li = document.createElement("li");
+    var b = document.createElement("button");
+    b.className = "ride";
+    b.innerHTML = '<span><span class="when"></span><span class="facts"></span></span>';
+    b.querySelector(".when").textContent =
+      "Session " + (sessionNumbers()[k] || "?") + ", " + dateLabel(group[0].startedAt).split(",")[0];
+    b.querySelector(".facts").innerHTML =
+      group.length + (group.length === 1 ? " ride" : " rides") + "<i>|</i>" +
+      hms(mins) + " riding<i>|</i>" + (samples / 1000).toFixed(0) + "k samples";
+    b.onclick = function () { exportDay(k, group); };
+    li.appendChild(b);
+    ul.appendChild(li);
+  });
+  $("daySheet").classList.add("on");
+}
+
+function exportDay(key, group) {
+  var list = group.slice().sort(function (a, b) { return a.startedAt - b.startedAt; });
+  toast("Reading " + list.length + (list.length === 1 ? " ride" : " rides"));
+  Promise.all(list.map(function (r) { return byRide("gps", r.id); })).then(function (res) {
+    var parts = dayParts(key, list, res);
+    var name = "bumplog-" + key + "-day.csv";
+    try {
+      lastExport = {
+        blob: new Blob(parts, { type: "text/csv;charset=utf-8" }),
+        name: name, parts: parts, mime: "text/csv"
+      };
+    } catch (e) { toast("Could not build the file: " + e); return; }
+    $("daySheet").classList.remove("on");
+    showExport(list.length + " rides, ready to send", true);
+  }).catch(function (e) {
+    toast("Could not read the rides: " + (e && e.message ? e.message : e));
+  });
+}
+$("btnDay").onclick = openDaySheet;
+$("dayBack").onclick = function () { $("daySheet").classList.remove("on"); };
+
+/* Everything except the raw stream, plus 1.5 s of raw either side of each jump so
+   the air detection can still be checked. Small enough to move around easily. */
+function summaryParts(r, pts, chunks, jumps, rough) {
+  var win = [], i, c;
+  if (jumps && jumps.length) {
+    for (c = 0; c < chunks.length; c++) {
+      var ch = chunks[c];
+      for (i = 0; i < ch.t.length; i++) {
+        var t = ch.t[i];
+        for (var j = 0; j < jumps.length; j++) {
+          if (t > jumps[j].t - 1500 && t < jumps[j].t + jumps[j].dur + 1500) {
+            win.push(rowText(ch, i));
+            break;
+          }
+        }
+      }
+    }
+  }
+  return [
+    jsonHead(r, pts, "summary") +
+    ',\n"roughnessPerSecond": ' + JSON.stringify(rough ? rough.map(function (v) {
+      return Math.round(v * 1000) / 1000;
+    }) : []) +
+    ',\n"jumps": ' + JSON.stringify(jumps || []) +
+    ',\n"jumpWindows": [' + win.join(",") + ']\n}\n'
+  ];
+}
+
+Array.prototype.slice.call(document.querySelectorAll(".act[data-x]")).forEach(function (btn) {
+  btn.onclick = function () {
+    if (!openR) return;
+    var kind = btn.getAttribute("data-x"), base = fileBase(openR);
+
+    if (kind === "gps") {
+      if (!openPts || !openPts.length) { toast("No GPS fixes to export"); return; }
+      deliver(base + "-gps.csv", [gpsRows(openPts)], "text/csv"); return;
+    }
+    if (kind === "gpx") {
+      if (!openPts || !openPts.length) { toast("No GPS fixes to export"); return; }
+      deliver(base + ".gpx", [gpxDoc(openR, openPts)], "application/gpx+xml"); return;
+    }
+    if (!openChunks) { toast("Still reading the samples, give it a second"); return; }
+    if (kind === "csvsec") {
+      deliver(base + "-seconds.csv",
+              secondCsvParts(openR, openPts || [], openRough, openJumps), "text/csv");
+      return;
+    }
+    if (kind === "csvall") {
+      deliver(base + "-all.csv",
+              combinedCsvParts(openR, openPts || [], openChunks, openJumps), "text/csv");
+      return;
+    }
+    if (kind === "summary") {
+      deliver(base + "-summary.json",
+              summaryParts(openR, openPts || [], openChunks, openJumps, openRough),
+              "application/json");
+      return;
+    }
+    if (kind === "accel") {
+      deliver(base + "-accel.csv", accelCsvParts(openChunks), "text/csv"); return;
+    }
+    deliver(base + ".json", jsonParts(openR, openPts || [], openChunks), "application/json");
+  };
 });
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, function (c) {
-    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+/* ---------------------------------------------------- setup and updates */
+function yn(el, good, yes, no) {
+  el.textContent = good ? yes : no;
+  el.className = "rv " + (good ? "ok" : "no");
+}
+function renderSetup() {
+  $("verSub").textContent = "version " + VERSION;
+
+  var m = $("sMotion");
+  m.textContent = motionReady ? "reading" : motionNote;
+  m.className = "rv " + (motionReady ? "ok" : "no");
+
+  $("sHz").textContent = R.hz + " Hz";
+  $("sHz").className = "rv " + (R.hz > 5 ? "ok" : "no");
+
+  var raw = $("sRaw");
+  if (lastRaw) {
+    raw.textContent = "x " + lastRaw.x.toFixed(2) + ", y " + lastRaw.y.toFixed(2) +
+                      ", z " + lastRaw.z.toFixed(2);
+    raw.className = "rv ok";
+  } else {
+    raw.textContent = mEvents ? mEvents + " empty events" : "nothing yet";
+    raw.className = "rv no";
+  }
+
+  var rr = $("sRot");
+  rr.textContent = hasRot ? "reading" : (motionReady ? "not reported" : "waiting");
+  rr.className = "rv " + (hasRot ? "ok" : "no");
+  var ll = $("sLin");
+  ll.textContent = hasLin
+    ? (lastSplit ? "up " + lastSplit.v.toFixed(2) + " g, across " + lastSplit.l.toFixed(2) + " g"
+                 : "reading")
+    : (motionReady ? "not reported" : "waiting");
+  ll.className = "rv " + (hasLin ? "ok" : "no");
+
+  var hasPrompt = window.DeviceMotionEvent &&
+                  typeof DeviceMotionEvent.requestPermission === "function";
+  yn($("sPerm"), !!hasPrompt, "yes", "no");
+  yn($("sHttps"), location.protocol === "https:" || location.hostname === "localhost",
+     location.protocol.replace(":", ""), "no, sensors need https");
+  yn($("sStandalone"), !!navigator.standalone, "yes", "no, running in Safari");
+
+  var g = $("sGps");
+  g.textContent = gpsNote;
+  g.className = "rv " + (gpsNote.indexOf("fix") === 0 ? "ok" : "no");
+
+  var fa = $("sFixAge");
+  if (!lastFixAt) { fa.textContent = "none yet"; fa.className = "rv no"; }
+  else {
+    var age = Math.round((Date.now() - lastFixAt) / 1000);
+    fa.textContent = age + " s ago";
+    fa.className = "rv " + (age < 10 ? "ok" : "no");
+  }
+  var gr = $("sGpsRe");
+  gr.textContent = gpsRestarts + (gpsWatch === null ? ", watch not running" : "");
+  gr.className = "rv " + (gpsWatch !== null || gpsDead ? "" : "no");
+
+  yn($("sSw"), !!(navigator.serviceWorker && navigator.serviceWorker.controller),
+     "yes, works offline", "not yet");
+
+  $("sDisk").textContent = diskText || "unknown";
+  $("sDisk").className = "rv";
+
+  $("btnAllow").style.display = motionReady ? "none" : "block";
+}
+$("btnAllow").onclick = function () {
+  askMotion().then(function (ok) {
+    toast(ok ? "Motion access granted" : "iOS refused. See the note below.");
+    renderSetup();
+  });
+};
+
+var swReg = null, updateReady = false;
+function markUpdate() {
+  updateReady = true;
+  $("btnUpdate").textContent = "Restart to finish the update";
+  $("btnUpdate").classList.add("go");
+  toast("A new version was downloaded");
+}
+function checkUpdate() {
+  if (updateReady) { location.reload(); return; }
+  if (!swReg) { toast("Offline copy not installed yet. Reload the page once."); return; }
+  $("btnUpdate").textContent = "Checking GitHub";
+  swReg.update().then(function () {
+    setTimeout(function () {
+      if (!updateReady) {
+        $("btnUpdate").textContent = "Check for update";
+        toast("Already on the newest version");
+      }
+    }, 3000);
+  }).catch(function () {
+    $("btnUpdate").textContent = "Check for update";
+    toast("Could not reach GitHub. Try again on wifi.");
+  });
+}
+$("btnUpdate").onclick = checkUpdate;
+
+$("btnRefetch").onclick = function () {
+  if (!confirm("Throw away the stored copy of the app and fetch it again?\n\n" +
+      "Needs an internet connection. Your rides are kept.")) return;
+  var step = ("caches" in window)
+    ? caches.keys().then(function (k) {
+        return Promise.all(k.map(function (x) { return caches.delete(x); }));
+      })
+    : Promise.resolve();
+  step.then(function () {
+    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+      return navigator.serviceWorker.getRegistrations().then(function (rs) {
+        return Promise.all(rs.map(function (r) { return r.unregister(); }));
+      });
+    }
+  }).then(function () { location.reload(); });
+};
+
+/* ------------------------------------------------------------ chrome */
+function go(id) {
+  Array.prototype.slice.call(document.querySelectorAll(".screen")).forEach(function (s) {
+    s.classList.toggle("on", s.id === id);
+  });
+  Array.prototype.slice.call(document.querySelectorAll(".tab")).forEach(function (t) {
+    t.classList.toggle("on", t.getAttribute("data-go") === id);
+  });
+}
+Array.prototype.slice.call(document.querySelectorAll(".tab")).forEach(function (t) {
+  t.onclick = function () {
+    var id = t.getAttribute("data-go");
+    go(id);
+    if (id === "scRides") renderRides();   // sparklines need a visible, sized canvas
+    if (id === "scSetup") renderSetup();
+  };
+});
+$("btnRec").onclick = function () { R.on ? stop() : start(); };
+
+var diskText = "";
+function updateStorage() {
+  if (navigator.storage && navigator.storage.estimate) {
+    navigator.storage.estimate().then(function (e) {
+      if (!e || !e.usage) return;
+      diskText = (e.usage / 1048576).toFixed(1) + " MB";
+      $("tStore").textContent = diskText + " stored";
+    }).catch(function () {});
+  }
+}
+
+document.addEventListener("visibilitychange", function () {
+  if (!document.hidden && !gpsDead && gpsWatch !== null && Date.now() - lastFixAt > 10000) {
+    restartGps("wake");            // iOS suspends the watch while the app is away
+  }
+  if (document.hidden && R.on) R.gaps++;
+  else if (!document.hidden && R.on && R.gaps) {
+    toast("Recording paused while the screen was off. Set Auto-Lock to Never.");
+  }
+});
+
+window.addEventListener("error", function (e) {
+  toast("Error: " + (e.message || "unknown"));
+});
+window.addEventListener("unhandledrejection", function (e) {
+  var r = e.reason;
+  toast("Error: " + (r && r.message ? r.message : r));
+});
+
+/* --------------------------------------------------------------- boot */
+$("note").innerHTML =
+  "Before the first run, set Auto-Lock to Never in Settings, Display &amp; Brightness. " +
+  "iOS stops the sensors the moment the screen sleeps, and this app has no way around that.";
+
+openDB().then(function () {
+  // a reload or crash mid-ride leaves a placeholder behind; clear it and its chunks
+  return getAll("rides").then(function (rows) {
+    var stale = rows.filter(function (r) { return r.open; });
+    return Promise.all(stale.map(function (r) { return delRide(r.id); }));
+  });
+}).then(function () {
+  return renderRides();
+}).then(function () {
+  updateStorage();
+  setInterval(updateStorage, 20000);
+  startGps();                 // on from launch, so a run never waits on a tap
+  probeMotion();
+  renderSetup();
+  setInterval(function () { if ($("scSetup").classList.contains("on")) renderSetup(); }, 600);
+  requestAnimationFrame(loop);
+}).catch(function (err) {
+  toast("Could not open local storage: " + err);
+});
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function () {
+    navigator.serviceWorker.register("./sw.js").then(function (reg) {
+      swReg = reg;
+      if (reg.waiting && navigator.serviceWorker.controller) markUpdate();
+      reg.addEventListener("updatefound", function () {
+        var sw = reg.installing;
+        if (!sw) return;
+        sw.addEventListener("statechange", function () {
+          if (sw.state === "installed" && navigator.serviceWorker.controller) markUpdate();
+        });
+      });
+    }).catch(function () {});
   });
 }
 </script>
